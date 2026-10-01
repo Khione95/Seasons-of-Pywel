@@ -1,4 +1,4 @@
-Seasons of Pywel 1.0 for Crimson Desert
+Seasons of Pywel 1.0.1 for Crimson Desert
 by Khione
 
 Four seasons that follow the in-game day, changing live while you play.
@@ -20,7 +20,7 @@ WEATHER
   melts after a while without snow, and soon after winter ends.
 - Weather follows the game's clock: sleeping or waiting moves it on too.
 
-CONTROL MENU (F5)
+CONTROL MENU (F5 - change the key in bin64\Seasons.ini)
 - Seasons: By the day (the season follows the calendar) or Fixed (you
   pick the season).
 - Length: 3, 7, 14 or 30 days a season.

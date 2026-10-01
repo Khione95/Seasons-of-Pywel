@@ -1,0 +1,15 @@
+🍂❄️ **Seasons of Pywel 1.0 is out!** 🌸☀️
+
+Four seasons for Crimson Desert that follow the in-game calendar and change **live** while you play.
+
+🌸 **Spring**: fresh greens, some rain
+☀️ **Summer**: hotter, rare rain
+🍂 **Autumn**: golden and orange forests, frequent rain
+❄️ **Winter**: snow on everything, real cold on the temperature meter, snowfall, and **deep snow that builds up while it snows** and melts after
+
+• Weather and temperature follow the season, on the game's clock (sleeping moves it on)
+• Control Menu on **F5**
+• No game files changed. Install with DMM (ASI tab) or by hand
+
+📥 Nexus: <NEXUS LINK>
+💻 Source: https://github.com/Khione95/Seasons-of-Pywel

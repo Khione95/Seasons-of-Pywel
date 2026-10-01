@@ -8,6 +8,7 @@
 
 #include "archive.h"
 #include "climate.h"
+#include "hotkeys.h"
 #include "weather.h"
 #include "log.h"
 #include "menu.h"
@@ -44,6 +45,8 @@ static void Start()
     if (slash)
         *slash = 0;
 
+    char bin64[MAX_PATH];
+    strcpy_s(bin64, folder);
     strcat_s(folder, "\\Seasons");
     CreateDirectoryA(folder, NULL);
 
@@ -51,7 +54,8 @@ static void Start()
     sprintf_s(log, "%s\\Seasons.log", folder);
     sprintf_s(ini, "%s\\Seasons.ini", folder);
     LogOpen(log);
-    Log("Seasons 1.0");
+    Log("Seasons 1.0.1");
+    HotkeysLoad(bin64);
 
     char name[32] = { 0 };
     GetPrivateProfileStringA("Seasons", "season", "summer", name, sizeof(name), ini);

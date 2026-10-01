@@ -39,6 +39,14 @@ def main():
             print(name, os.path.getsize(path), flush=True)
     print('release:', archive, os.path.getsize(archive))
 
+    # An update for those who have the data already: the plugin and the readme.
+    update = os.path.join(OUT, f'Seasons of Pywel {version} - plugin only.zip')
+    with zipfile.ZipFile(update, 'w', zipfile.ZIP_DEFLATED) as z:
+        for path, name in files:
+            if '/data/' not in name:
+                z.write(path, name)
+    print('update:', update, os.path.getsize(update))
+
 
 if __name__ == '__main__':
     main()

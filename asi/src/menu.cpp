@@ -1,6 +1,7 @@
 #include "menu.h"
 #include "archive.h"
 #include "climate.h"
+#include "hotkeys.h"
 #include "weather.h"
 #include "log.h"
 #include "overlay.h"
@@ -13,7 +14,7 @@
 #include <string>
 
 // ---------------------------------------------------------------------------
-// The Control Menu (F5), drawn like Character Creator's: a panel on the right
+// The Control Menu (F5 by default: bin64\Seasons.ini), drawn like Character Creator's: a panel on the right
 // with rows to choose with the arrows.
 // ---------------------------------------------------------------------------
 
@@ -294,6 +295,58 @@ static void Choices(ID2D1DeviceContext* dc, float y, const wchar_t* label, const
     }
 }
 
+// ---------------------------------------------------------------------------
+// The season's notice: top right while the menu is closed, as Character
+// Creator's, for a few seconds when a season begins.
+// ---------------------------------------------------------------------------
+
+static SRWLOCK g_toastLock = SRWLOCK_INIT;
+static std::wstring g_toastTitle, g_toastText;
+static DWORD g_toastAt = 0;
+static const DWORD TOAST_MS = 7000;
+
+static const wchar_t* const SEASON_LINES[SEASON_COUNT] = {
+    L"Fresh green leaves, and now and then some rain.",
+    L"Hot days, and rain only once in a while.",
+    L"The leaves turn gold, and rain comes often.",
+    L"Snow and cold. Deep snow builds up while it snows.",
+};
+
+static void Toast(Season season)
+{
+    AcquireSRWLockExclusive(&g_toastLock);
+    g_toastTitle = std::wstring(SEASON_LABELS[season]) + L" has come";
+    g_toastText = SEASON_LINES[season];
+    g_toastAt = GetTickCount();
+    ReleaseSRWLockExclusive(&g_toastLock);
+    OverlaySetDrawing(true);
+}
+
+static void DrawToast(ID2D1DeviceContext* dc, const OverlayDrawContext& ctx)
+{
+    AcquireSRWLockShared(&g_toastLock);
+    std::wstring title = g_toastTitle, text = g_toastText;
+    DWORD at = g_toastAt;
+    ReleaseSRWLockShared(&g_toastLock);
+
+    if (title.empty() || GetTickCount() - at > TOAST_MS)
+    {
+        OverlaySetDrawing(false);
+        return;
+    }
+
+    Style& st = g_style;
+    float s = st.scale;
+    float x0 = ctx.width - 640 * s, x1 = ctx.width - 24 * s, y0 = 50 * s, y1 = y0 + 120 * s;
+    st.panel->SetStartPoint(D2D1::Point2F(x0 - 160 * s, 0));
+    st.panel->SetEndPoint(D2D1::Point2F(x1, 0));
+    dc->FillRectangle(D2D1::RectF(x0 - 160 * s, y0, x1, y1), st.panel);
+    dc->DrawLine(D2D1::Point2F(x0 - 40 * s, y0), D2D1::Point2F(x1, y0), st.line, 1.2f * s);
+    dc->DrawLine(D2D1::Point2F(x0 - 40 * s, y1), D2D1::Point2F(x1, y1), st.line, 1.2f * s);
+    Text(dc, title, st.title, D2D1::RectF(x0, y0 + 10 * s, x1, y0 + 58 * s), st.gold);
+    Text(dc, text, st.caption, D2D1::RectF(x0, y0 + 62 * s, x1, y1 - 12 * s), st.text);
+}
+
 static void MenuDraw(const OverlayDrawContext& ctx)
 {
     static unsigned generation = 0;
@@ -312,6 +365,12 @@ static void MenuDraw(const OverlayDrawContext& ctx)
 
         if (!g_style.ready)
             return;
+    }
+
+    if (!OverlayVisible())
+    {
+        DrawToast(ctx.dc, ctx);
+        return;
     }
 
     AcquireSRWLockExclusive(&g_lock);
@@ -395,7 +454,9 @@ static void MenuDraw(const OverlayDrawContext& ctx)
 
     float footerTop = y1 - 56 * s;
     dc->DrawLine(D2D1::Point2F(gx0, footerTop), D2D1::Point2F(gx1, footerTop), st.line, 1.0f * s);
-    Text(dc, L"[F5] Close", st.big, D2D1::RectF(x0, footerTop + 8 * s, x1, y1 - 8 * s), st.text);
+    wchar_t close[64];
+    swprintf_s(close, L"[%s] Close", HotkeyName());
+    Text(dc, close, st.big, D2D1::RectF(x0, footerTop + 8 * s, x1, y1 - 8 * s), st.text);
 
     ReleaseSRWLockExclusive(&g_lock);
 }
@@ -404,8 +465,13 @@ static void MenuDraw(const OverlayDrawContext& ctx)
 // Keys
 // ---------------------------------------------------------------------------
 
+static void Toast(Season season);
+
 static void SetSeason(Season season)
 {
+    if (season != ArchiveSeason())
+        Toast(season);
+
     ArchiveSetSeason(season);
     WritePrivateProfileStringA("Seasons", "season", SEASON_NAMES[season], g_ini);
 }
@@ -515,7 +581,7 @@ static void MenuKey(int vk)
     ReleaseSRWLockExclusive(&g_lock);
 }
 
-// F5 opens and closes the menu (checked from a thread: the game may not pass
+// The hotkey (F5) opens and closes the menu (checked from a thread: the game may not pass
 // the key on while the menu is closed).
 static DWORD WINAPI KeyThread(LPVOID)
 {
@@ -527,7 +593,7 @@ static DWORD WINAPI KeyThread(LPVOID)
         HWND fg = GetForegroundWindow();
         DWORD pid = 0;
         GetWindowThreadProcessId(fg, &pid);
-        bool down = pid == GetCurrentProcessId() && (GetAsyncKeyState(VK_F5) & 0x8000);
+        bool down = pid == GetCurrentProcessId() && HotkeyDown();
 
         if (down && !was)
         {

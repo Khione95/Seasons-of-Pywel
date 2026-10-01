@@ -52,6 +52,7 @@
     <ClCompile Include="src\gpu.cpp" />
     <ClCompile Include="src\climate.cpp" />
     <ClCompile Include="src\weather.cpp" />
+    <ClCompile Include="src\hotkeys.cpp" />
     <ClCompile Include="src\log.cpp" />
     <ClCompile Include="external\minhook\src\buffer.c" />
     <ClCompile Include="external\minhook\src\hook.c" />

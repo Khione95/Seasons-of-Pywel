@@ -55,6 +55,7 @@ The Control Menu shows the snow depth as a percentage.
 • [b]Season[/b]: in Fixed mode, pick a season and press Enter. By the day, it follows the calendar.
 • It shows the day, the season, the weather now, the current spell and how long it lasts, and the snow depth.
 • Arrow keys to choose and change, Enter to apply, F5 or Esc to close.
+• The key can be changed in bin64\Seasons.ini (written on the first start, also editable in DMM's ASI config).
 
 [size=5][b]Install[/b][/size]
 [b]With DMM[/b]: drop the zip on DMM and turn Seasons on in the ASI tab. DMM puts Seasons.asi and its data folder into bin64 (and comes with its own ASI loader).

@@ -85,6 +85,8 @@ static double g_until = 0.5;                 // when the spell (or the dry time)
 static double g_lastSnow = 0;
 static volatile float g_depth = 0;           // the snow's depth (0..1)
 static volatile float g_hour = -1;           // the game's hour, read in the climate update
+static DWORD g_ticking = 0;                  // when the clock last moved on as the game runs
+static const DWORD TICKING_MS = 60000;       // a jump counts as skipped time within this of it
 static char g_ini[MAX_PATH];
 
 static void HookQuery(uintptr_t actor, uint32_t* flags, uint8_t* indoors)
@@ -306,8 +308,20 @@ static DWORD WINAPI DirectorThread(LPVOID)
             passed += 24.0;     // past midnight (or a sleep over it)
 
         last = hour;
-
         bool live = passed <= 0.5;
+        DWORD now = GetTickCount();
+
+        if (live && passed > 0)
+            g_ticking = now;
+
+        // A jump with the clock standing still before it is a world loading
+        // (from the main menu, whose clock stands at noon), not time slept
+        // or waited through: nothing to play through.
+        if (!live && (!g_ticking || now - g_ticking > TICKING_MS))
+        {
+            Log("weather: the clock jumped to %.2f (a world loaded) - not played through", hour);
+            continue;
+        }
 
         for (double left = passed; left > 0; left -= 0.25)
             Step(left < 0.25 ? left : 0.25, live);
