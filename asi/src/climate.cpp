@@ -1,0 +1,357 @@
+#include "climate.h"
+#include "gpu.h"
+#include "log.h"
+#include "weather.h"
+
+#include <windows.h>
+#include <math.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include <vector>
+
+// ---------------------------------------------------------------------------
+// The climate map (PAClimateTexture, vtable rva 5AD1A10): +0x18 texels, +0x20
+// their count, +0x30/+0x34 metres per texel (80), +0x38/+0x3C width and height
+// (512). It is texture/climate_texture_1.dds upside down, a u32 per texel with
+// the bytes A,R,G,B. The game makes two (the weather manager's, the climate
+// manager's at +0xD8) and samples them as it runs (rva 269F080): the top byte
+// is the day's top temperature, -50..50 degrees for 0..255, the night is up
+// to 25 degrees colder (G). The temperature meter and deep snow follow the
+// climate manager's. Each map gets the season's texels, checked every 2
+// seconds (the game makes them again when a world loads).
+//
+// Snow (settings in the game's data, read live):
+//   SNOW_START / SNOW_FULL (-5 / -20): precipitation turns to snow between them
+//   DEEP_SNOW (-20): deep snow where the midday temperature around the camera
+//                    is below it (rva 3DC0C50 -> climate manager +0x120)
+// Each season has its own temperatures (SHIFT). Winter: snow below about +3
+// degrees, and deep snow that builds up while the HUD shows snow (DEEP_SNOW
+// rising to +6) and melts after a while without snow.
+// ---------------------------------------------------------------------------
+
+static const uintptr_t CLIMATE_VTABLE = 0x5AD1A10;
+static const uint32_t MAP_SIZE = 512;
+static const uintptr_t SNOW_START = 0x6D63848, SNOW_FULL = 0x6D63898, DEEP_SNOW = 0x6D638E8;
+
+// Each season's days and nights against the game's own (summer is hot).
+static const float SHIFT[SEASON_COUNT] = { -6.0f, 4.0f, -8.0f, -22.0f };   // spring, summer, autumn, winter
+static const float WINTER_SNOW_START = 8.0f, WINTER_SNOW_FULL = 3.0f;    // all snow at winter days (+2..+3)
+// DEEP_SNOW as the snow deepens: the game's (-20, the snow mountains only)
+// with none, then from DEEP_SNOW_LEAST to DEEP_SNOW_MOST - the winter's day
+// temperatures in the middle lands - so it spreads from the colder places.
+static const float DEEP_SNOW_LEAST = 0.0f, DEEP_SNOW_MOST = 6.0f;
+
+static std::vector<uint32_t> g_map[SEASON_COUNT];   // in the game's layout; empty: none
+static std::vector<uintptr_t> g_objects;
+static volatile LONG g_target = SUMMER;
+static HANDLE g_wake = NULL;
+static char g_ini[MAX_PATH];
+
+static volatile LONG g_test = CLIMATE_TEST_NONE;   // the day's top temperature everywhere (test)
+static std::vector<uint32_t> g_testMap;
+
+static volatile LONG g_deepTest = -1;               // test: -1 the snowfall's, else percent
+static volatile LONG g_deepShown = 0;               // percent, for the menu
+
+static float g_gameStart = 0, g_gameFull = 0, g_gameDeep = 0;
+static bool g_snowRead = false;
+
+static float* Global(uintptr_t rva) { return (float*)((uintptr_t)GetModuleHandleW(NULL) + rva); }
+
+static void SnowLine(Season season)
+{
+    if (!g_snowRead)
+    {
+        g_gameStart = *Global(SNOW_START);
+        g_gameFull = *Global(SNOW_FULL);
+        g_gameDeep = *Global(DEEP_SNOW);
+        g_snowRead = true;
+        Log("climate: the game's snow temperatures %.1f / %.1f, deep snow below %.1f", g_gameStart, g_gameFull, g_gameDeep);
+    }
+
+    LONG test = g_deepTest;
+    float deep = test >= 0 ? test / 100.0f : WeatherSnowDepth();
+    float wantStart = season == WINTER ? WINTER_SNOW_START : g_gameStart;
+    float wantFull = season == WINTER ? WINTER_SNOW_FULL : g_gameFull;
+    float wantDeep = deep <= 0 ? g_gameDeep : DEEP_SNOW_LEAST + (DEEP_SNOW_MOST - DEEP_SNOW_LEAST) * deep;
+
+    if (*Global(SNOW_START) != wantStart || *Global(SNOW_FULL) != wantFull || *Global(DEEP_SNOW) != wantDeep)
+    {
+        bool quiet = *Global(SNOW_START) == wantStart && *Global(SNOW_FULL) == wantFull && fabsf(*Global(DEEP_SNOW) - wantDeep) < 1.0f;
+        *Global(SNOW_START) = wantStart;
+        *Global(SNOW_FULL) = wantFull;
+        *Global(DEEP_SNOW) = wantDeep;
+
+        if (!quiet)
+            Log("climate: snow between %.1f and %.1f degrees, deep snow below %.1f", wantStart, wantFull, wantDeep);
+    }
+}
+
+static float Top(uint32_t texel)
+{
+    return ((texel >> 24) / 255.0f * 2.0f - 1.0f) * 50.0f;
+}
+
+// The texel's top byte for a day's top temperature.
+static uint32_t TopByte(float degrees)
+{
+    int b = (int)((degrees / 50.0f + 1.0f) / 2.0f * 255.0f + 0.5f);
+    return (uint32_t)(b < 0 ? 0 : b > 255 ? 255 : b);
+}
+
+// A season's climate texture in the game's layout.
+static bool Load(Season season, std::vector<uint32_t>* m)
+{
+    std::vector<uint8_t> px;
+    uint32_t w = 0, h = 0;
+
+    if (!SeasonTextureMip("0002", "texture/climate_texture_1.dds", season, 0, &px, &w, &h) || w != MAP_SIZE || h != MAP_SIZE ||
+        px.size() != (size_t)MAP_SIZE * MAP_SIZE * 4)
+        return false;
+
+    m->resize((size_t)MAP_SIZE * MAP_SIZE);
+
+    for (uint32_t y = 0; y < MAP_SIZE; ++y)
+        for (uint32_t x = 0; x < MAP_SIZE; ++x)
+        {
+            const uint8_t* p = &px[((size_t)(MAP_SIZE - 1 - y) * MAP_SIZE + x) * 4];   // B,G,R,A
+            (*m)[(size_t)y * MAP_SIZE + x] = (uint32_t)p[3] | ((uint32_t)p[2] << 8) | ((uint32_t)p[1] << 16) | ((uint32_t)p[0] << 24);
+        }
+
+    return true;
+}
+
+// Each season: the game's own (summer's climate texture) SHIFT degrees warmer
+// or colder. Winter takes the winter texture's other channels (the snow
+// mountains'); where the winter texture keeps summer's (the desert), it stays
+// as in summer.
+static void Build()
+{
+    std::vector<uint32_t> game, winter;
+
+    if (!Load(SUMMER, &game))
+    {
+        Log("climate: no summer climate map in the season data");
+        return;
+    }
+
+    bool haveWinter = Load(WINTER, &winter);
+
+    if (!haveWinter)
+        Log("climate: no winter climate map in the season data");
+
+    size_t kept = 0;
+
+    for (int s = 0; s < SEASON_COUNT; ++s)
+    {
+        std::vector<uint32_t>& m = g_map[s];
+        m.resize(game.size());
+
+        for (size_t i = 0; i < game.size(); ++i)
+        {
+            uint32_t rest = game[i] & 0x00FFFFFF;
+            float shift = SHIFT[s];
+
+            if (s == WINTER && haveWinter)
+            {
+                if (winter[i] == game[i])
+                {
+                    shift = SHIFT[SUMMER];
+                    ++kept;
+                }
+                else
+                    rest = winter[i] & 0x00FFFFFF;
+            }
+
+            m[i] = rest | (TopByte(Top(game[i]) + shift) << 24);
+        }
+    }
+
+    Log("climate: spring %+.0f, summer %+.0f, autumn %+.0f, winter %+.0f degrees against the game's (%zu texels warm in winter: the desert)",
+        SHIFT[SPRING], SHIFT[SUMMER], SHIFT[AUTUMN], SHIFT[WINTER], kept);
+}
+
+static bool IsMap(uintptr_t o, uintptr_t vtable)
+{
+    __try
+    {
+        return *(uintptr_t*)o == vtable && *(uintptr_t*)(o + 0x18) > 0x10000 && *(uint32_t*)(o + 0x20) == MAP_SIZE * MAP_SIZE &&
+               *(uint32_t*)(o + 0x38) == MAP_SIZE && *(uint32_t*)(o + 0x3C) == MAP_SIZE;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        return false;
+    }
+}
+
+// The climate maps in one stretch of memory.
+static size_t ScanRegion(const uint8_t* base, size_t size, uintptr_t vtable, uintptr_t* out, size_t max)
+{
+    size_t n = 0;
+
+    __try
+    {
+        for (size_t i = 0; i + 0x40 <= size && n < max; i += 8)
+            if (*(const uintptr_t*)(base + i) == vtable && IsMap((uintptr_t)(base + i), vtable))
+                out[n++] = (uintptr_t)(base + i);
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+    }
+
+    return n;
+}
+
+// Every climate map in the game's memory.
+static std::vector<uintptr_t> Find()
+{
+    uintptr_t vtable = (uintptr_t)GetModuleHandleW(NULL) + CLIMATE_VTABLE;
+    std::vector<uintptr_t> found;
+    MEMORY_BASIC_INFORMATION mbi;
+    uint8_t* addr = NULL;
+    uintptr_t hits[16];
+
+    while (VirtualQuery(addr, &mbi, sizeof(mbi)) == sizeof(mbi))
+    {
+        uint8_t* base = (uint8_t*)mbi.BaseAddress;
+        size_t size = mbi.RegionSize;
+        addr = base + size;
+
+        if (mbi.State != MEM_COMMIT || mbi.Type != MEM_PRIVATE || mbi.Protect != PAGE_READWRITE)
+            continue;
+
+        size_t n = ScanRegion(base, size, vtable, hits, 16);
+        found.insert(found.end(), hits, hits + n);
+    }
+
+    return found;
+}
+
+// Gives a map the season's texels; true when it had others.
+static bool Bring(uintptr_t o, const uint32_t* m, size_t count)
+{
+    __try
+    {
+        uint32_t* t = *(uint32_t**)(o + 0x18);
+
+        if (memcmp(t, m, count * 4) == 0)
+            return false;
+
+        memcpy(t, m, count * 4);
+        return true;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        return false;
+    }
+}
+
+static DWORD WINAPI ClimateThread(LPVOID)
+{
+    Build();
+    uintptr_t vtable = (uintptr_t)GetModuleHandleW(NULL) + CLIMATE_VTABLE;
+    DWORD lastFind = 0;
+
+    for (;;)
+    {
+        WaitForSingleObject(g_wake, 2000);
+        Season target = (Season)g_target;
+        LONG deepTest = g_deepTest;
+        InterlockedExchange(&g_deepShown, deepTest >= 0 ? deepTest : (LONG)(WeatherSnowDepth() * 100 + 0.5f));
+
+        const std::vector<uint32_t>* pick = &g_map[target];
+
+        if (pick->empty())
+            continue;
+
+        LONG test = g_test;
+
+        if (test != CLIMATE_TEST_NONE)
+        {
+            g_testMap = *pick;
+
+            for (uint32_t& t : g_testMap)
+                t = (t & 0x00FFFFFF) | (TopByte((float)test) << 24);
+
+            pick = &g_testMap;
+        }
+
+        const std::vector<uint32_t>& m = *pick;
+
+        // A map gone (a world unloaded): look again (every 10 seconds while
+        // there is none); and every 30 seconds, for new ones.
+        bool stale = false;
+
+        for (uintptr_t o : g_objects)
+            stale = stale || !IsMap(o, vtable);
+
+        DWORD since = GetTickCount() - lastFind;
+
+        if (!lastFind || stale || since > 30000 || (g_objects.empty() && since > 10000))
+        {
+            DWORD t0 = GetTickCount();
+            std::vector<uintptr_t> found = Find();
+            lastFind = GetTickCount();
+
+            if (found != g_objects)
+            {
+                g_objects = found;
+                Log("climate: %zu climate maps (looked for %lu ms)", g_objects.size(), lastFind - t0);
+            }
+        }
+
+        if (!g_objects.empty())
+            SnowLine(target);
+
+        int changed = 0;
+
+        for (uintptr_t o : g_objects)
+            changed += Bring(o, m.data(), m.size()) ? 1 : 0;
+
+        if (changed && test != CLIMATE_TEST_NONE)
+            Log("climate: %d climate maps now %s's at %ld degrees (test)", changed, SEASON_NAMES[target], test);
+        else if (changed)
+            Log("climate: %d climate maps now %s's", changed, SEASON_NAMES[target]);
+    }
+}
+
+void ClimateStart(Season start, const char* ini)
+{
+    g_target = start;
+    strcpy_s(g_ini, ini);
+    g_wake = CreateEventW(NULL, FALSE, FALSE, NULL);
+    CloseHandle(CreateThread(NULL, 0, ClimateThread, NULL, 0, NULL));
+}
+
+void ClimateSeasonChanged(Season season)
+{
+    InterlockedExchange(&g_target, season);
+
+    if (g_wake)
+        SetEvent(g_wake);
+}
+
+void ClimateTest(int degrees)
+{
+    InterlockedExchange(&g_test, degrees);
+
+    if (g_wake)
+        SetEvent(g_wake);
+}
+
+int ClimateTestDegrees() { return g_test; }
+
+void ClimateDeepTest(int percent)
+{
+    InterlockedExchange(&g_deepTest, percent);
+
+    if (g_wake)
+        SetEvent(g_wake);
+}
+
+int ClimateDeepTestPercent() { return g_deepTest; }
+
+int ClimateDeepPercent() { return g_deepShown; }

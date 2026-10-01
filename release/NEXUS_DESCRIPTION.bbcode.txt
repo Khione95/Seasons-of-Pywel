@@ -1,0 +1,80 @@
+[center][size=6][b]Seasons of Pywel[/b][/size]
+[size=3][i]A living year for Crimson Desert[/i][/size][/center]
+
+Pywel gets four seasons. They follow the in-game calendar and change [b]live while you play[/b]: no reloads, no picking mods, no game files changed on disk. Trees, grass and terrain change colour, winter brings snow and real cold, and the weather, the temperature and even deep snow follow the season.
+
+[size=5][b]The year[/b][/size]
+The year starts in summer, as the game does. Each season lasts 30 in-game days by default (3, 7 or 14 in the menu):
+• Days 1-30: [b]summer[/b]
+• Days 31-60: [b]autumn[/b]
+• Days 61-90: [b]winter[/b]
+• Days 91-120: [b]spring[/b], then summer again
+
+The season follows the day shown next to the minimap. When a new season starts, the world changes around you within seconds; far trees and grass catch up as the game loads them again (a few seconds, or after travelling).
+
+[size=5][b]How each season looks[/b][/size]
+• [b]Spring[/b]: fresh, bright green leaves and grass.
+• [b]Summer[/b]: the game's own look.
+• [b]Autumn[/b]: golden, orange and brown trees and bushes, near and far, with matching grass and terrain colours.
+• [b]Winter[/b]: snow on the ground, on trees, rocks and objects, frost, and snowfall. The Crimson Desert's ground stays bare and warm.
+
+[size=5][b]Temperature[/b][/size]
+The game has its own temperature system (the meter, the cold and heat effects, warming up by a fire). Each season moves it:
+• [b]Summer[/b]: 4 degrees hotter than the game's own.
+• [b]Spring[/b]: 6 degrees cooler.
+• [b]Autumn[/b]: 8 degrees cooler.
+• [b]Winter[/b]: 22 degrees colder. In the middle lands that means days around +2 to +3 degrees and nights well below freezing, around -13 degrees. The snow mountains get colder still; the desert stays as warm as in summer.
+Days stay warmer than nights, as in the game, and fires still warm you up.
+
+[size=5][b]Weather[/b][/size]
+Every season has its own weather. Rain and snow come in [b]spells[/b] that the mod rolls on the game's clock:
+• [b]Winter[/b]: snow often (60% chance each roll), spells of 3 to 8 game hours, light to heavy.
+• [b]Autumn[/b]: rain often (50%), spells of 3 to 6 game hours, up to heavy rain.
+• [b]Spring[/b]: some rain (30%), spells of 2 to 5 game hours, light to moderate.
+• [b]Summer[/b]: rain only now and then (8%), short spells of 1 to 3 game hours. The game's own rain is mostly kept away too, so summers are dry and hot.
+After a spell, or when a roll stays dry, the sky stays clear for 4 to 8 game hours before the next roll.
+
+• Spells come and go gradually, over about a quarter of a game hour.
+• Clouds gather with the rain and snow: the heavier the spell, the more overcast the sky.
+• In winter, precipitation falls as snow, the game's own rain included.
+• The HUD weather icon follows along (rainy, snowy).
+• Everything runs on the [b]game's clock[/b] (one game hour is about 2.5 real minutes). Sleeping and waiting move the weather on: sleep through a snowfall and you wake up to deeper snow. A paused game pauses the weather.
+
+[size=5][b]Deep snow[/b][/size]
+Deep snow, the kind you wade through with snow spraying off your knees, is not there from the first day of winter. It builds up while it snows and melts when it stops:
+• [b]Snow depth[/b] grows while it snows: heavy snow reaches full depth in about 5 game hours, light snow takes longer.
+• As the depth grows, deep snow spreads from the coldest places outward, then over the warmer lands.
+• When the snow stops, the depth holds for about 5 game hours, then melts away over about 10 game hours. A dry spell in winter brings the ground back to normal snow cover.
+• When winter ends, the deep snow melts within a few game hours.
+• The snow depth is kept when you quit and comes back with your next session.
+The Control Menu shows the snow depth as a percentage.
+
+[size=5][b]Control Menu (F5)[/b][/size]
+• [b]Seasons[/b]: By the day (the season follows the calendar) or Fixed (you choose the season).
+• [b]Length[/b]: 3, 7, 14 or 30 days a season.
+• [b]Season[/b]: in Fixed mode, pick a season and press Enter. By the day, it follows the calendar.
+• It shows the day, the season, the weather now, the current spell and how long it lasts, and the snow depth.
+• Arrow keys to choose and change, Enter to apply, F5 or Esc to close.
+
+[size=5][b]Install[/b][/size]
+[b]With DMM[/b]: drop the zip on DMM and turn Seasons on in the ASI tab. DMM puts Seasons.asi and its data folder into bin64 (and comes with its own ASI loader).
+
+[b]By hand[/b]:
+1. You need an ASI loader: Ultimate ASI Loader as winmm.dll in bin64.
+2. From the zip's Seasons folder, copy Seasons.asi and the Seasons folder into Crimson Desert\bin64.
+3. Start the game.
+
+No game files are changed on disk: the season textures are served from bin64\Seasons\data while the game runs. Settings are kept in bin64\Seasons\Seasons.ini, a log in bin64\Seasons\Seasons.log.
+
+[size=5][b]Uninstall[/b][/size]
+With DMM: delete Seasons in the ASI tab. By hand: delete bin64\Seasons.asi and the folder bin64\Seasons.
+
+[size=5][b]Compatibility[/b][/size]
+• Works with and without ReShade / RenoDX (HDR included).
+• Works alongside other ASI plugins, such as Character Creator.
+• Mods that replace the same tree, grass or terrain colour textures can look mixed outside summer.
+• Other weather mods may fight with the seasons' weather.
+• After a game update, parts the mod cannot find are turned off (see the log) until the mod is updated.
+
+[size=5][b]Source[/b][/size]
+The source is on GitHub: [url=https://github.com/Khione95/Seasons-of-Pywel]Seasons of Pywel[/url].
