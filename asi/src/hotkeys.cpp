@@ -16,6 +16,7 @@ struct Hotkey
 };
 
 static Hotkey g_key = { VK_F5, false, false, false, L"F5" };
+static bool g_testing = false;      // the Control Menu's testing rows ([Testing] ControlMenu = 1)
 
 struct NamedKey
 {
@@ -127,22 +128,41 @@ static const char DEFAULT_INI[] =
     "[Hotkeys]\r\n"
     "ControlMenu = F5\r\n";
 
+static const char TESTING_INI[] =
+    "\r\n"
+    "; The testing rows in the Control Menu, for videos and screenshots: the\r\n"
+    "; weather (clear, rain, snow), the temperature, the snow depth (deep snow\r\n"
+    "; on and off) and the calendar. 1 shows them, 0 hides them.\r\n"
+    "; Changes apply the next time the game starts.\r\n"
+    "[Testing]\r\n"
+    "ControlMenu = 0\r\n";
+
 // DMM installs the plugin into bin64: the ini is written there on the first
-// start, where DMM's ASI config editor finds it.
+// start, where DMM's ASI config editor finds it. One from an older version
+// gets the testing section added.
 static void WriteDefault(const char* path)
 {
-    if (GetFileAttributesA(path) != INVALID_FILE_ATTRIBUTES)
+    bool have = GetFileAttributesA(path) != INVALID_FILE_ATTRIBUTES;
+    char probe[8] = "";
+
+    if (have)
+        GetPrivateProfileStringA("Testing", "ControlMenu", "\x01", probe, sizeof(probe), path);
+
+    if (have && probe[0] != '\x01')
         return;
 
     FILE* f = NULL;
-    fopen_s(&f, path, "wb");
+    fopen_s(&f, path, have ? "ab" : "wb");
 
     if (!f)
         return;
 
-    fwrite(DEFAULT_INI, 1, sizeof(DEFAULT_INI) - 1, f);
+    if (!have)
+        fwrite(DEFAULT_INI, 1, sizeof(DEFAULT_INI) - 1, f);
+
+    fwrite(TESTING_INI, 1, sizeof(TESTING_INI) - 1, f);
     fclose(f);
-    Log("hotkeys: wrote the default %s", path);
+    Log("hotkeys: %s %s", have ? "added the testing section to" : "wrote the default", path);
 }
 
 void HotkeysLoad(const char* bin64)
@@ -165,7 +185,14 @@ void HotkeysLoad(const char* bin64)
     }
 
     Log("hotkeys: the Control Menu on %S", g_key.name);
+
+    g_testing = GetPrivateProfileIntA("Testing", "ControlMenu", 0, path) != 0;
+
+    if (g_testing)
+        Log("hotkeys: the Control Menu's testing rows on");
 }
+
+bool TestingMenu() { return g_testing; }
 
 static bool Held(int vk)
 {

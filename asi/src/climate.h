@@ -12,6 +12,11 @@ void ClimateSeasonChanged(Season season);
 // How deep the snow is (percent).
 int ClimateDeepPercent();
 
+// Deep snow on or off (the player's choice, ini deep_snow=default/off). Off: no
+// deep snow in winter, nor the cold that comes with it.
+void ClimateSetDeepSnow(bool on);
+bool ClimateDeepSnow();
+
 // Test: the day's top temperature everywhere (CLIMATE_TEST_NONE: the season's).
 static const int CLIMATE_TEST_NONE = -1000;
 void ClimateTest(int degrees);

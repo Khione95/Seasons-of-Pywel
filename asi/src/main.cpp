@@ -54,7 +54,7 @@ static void Start()
     sprintf_s(log, "%s\\Seasons.log", folder);
     sprintf_s(ini, "%s\\Seasons.ini", folder);
     LogOpen(log);
-    Log("Seasons 1.0.1");
+    Log("Seasons 1.0.2");
     HotkeysLoad(bin64);
 
     char name[32] = { 0 };

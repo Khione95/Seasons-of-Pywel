@@ -4,7 +4,7 @@
 Pywel gets four seasons. They follow the in-game calendar and change [b]live while you play[/b]: no reloads, no picking mods, no game files changed on disk. Trees, grass and terrain change colour, winter brings snow and real cold, and the weather, the temperature and even deep snow follow the season.
 
 [size=5][b]The year[/b][/size]
-The year starts in summer, as the game does. Each season lasts 30 in-game days by default (3, 7 or 14 in the menu):
+The year starts in summer, as the game does. Each season lasts 30 in-game days by default (3, 7, 14, 45, 60 or 90 in the menu):
 • Days 1-30: [b]summer[/b]
 • Days 31-60: [b]autumn[/b]
 • Days 61-90: [b]winter[/b]
@@ -23,7 +23,8 @@ The game has its own temperature system (the meter, the cold and heat effects, w
 • [b]Summer[/b]: 4 degrees hotter than the game's own.
 • [b]Spring[/b]: 6 degrees cooler.
 • [b]Autumn[/b]: 8 degrees cooler.
-• [b]Winter[/b]: 22 degrees colder. In the middle lands that means days around +2 to +3 degrees and nights well below freezing, around -13 degrees. The snow mountains get colder still; the desert stays as warm as in summer.
+• [b]Winter[/b]: 24 degrees colder. In the middle lands that means days around 0 to +1 degrees and nights well below freezing, around -15 degrees. The desert stays as warm as in summer. Deep snow makes it colder still (see below).
+• [b]Cold, not deadly[/b]: no season makes a night colder than -30 degrees where the game's own nights are warmer, so chilly forts and hills don't freeze you (or their guards) to death. The far north's snow mountains keep the game's own cold.
 Days stay warmer than nights, as in the game, and fires still warm you up.
 
 [size=5][b]Weather[/b][/size]
@@ -44,18 +45,28 @@ After a spell, or when a roll stays dry, the sky stays clear for 4 to 8 game hou
 Deep snow, the kind you wade through with snow spraying off your knees, is not there from the first day of winter. It builds up while it snows and melts when it stops:
 • [b]Snow depth[/b] grows while it snows: heavy snow reaches full depth in about 5 game hours, light snow takes longer.
 • As the depth grows, deep snow spreads from the coldest places outward, then over the warmer lands.
+• [b]The deeper the snow, the colder it gets[/b]: up to 6 degrees colder at full depth, days and nights. It warms up again as the snow melts.
 • When the snow stops, the depth holds for about 5 game hours, then melts away over about 10 game hours. A dry spell in winter brings the ground back to normal snow cover.
 • When winter ends, the deep snow melts within a few game hours.
-• The snow depth is kept when you quit and comes back with your next session.
-The Control Menu shows the snow depth as a percentage.
+• Loading a save brings back its snow depth: the mod remembers the depth (and how long it had been dry) by the in-game day and hour, so loading a save, or the same save again, brings back the depth it had then. If you replay the same hours from an older save, the latest play of those hours counts.
+The Control Menu shows the snow depth as a percentage. Don't want deep snow? Turn it off in the Control Menu: winter keeps its snow cover, snowfall and cold, without the deep snow and its extra cold.
 
 [size=5][b]Control Menu (F5)[/b][/size]
 • [b]Seasons[/b]: By the day (the season follows the calendar) or Fixed (you choose the season).
-• [b]Length[/b]: 3, 7, 14 or 30 days a season.
+• [b]Length[/b]: 3, 7, 14, 30, 45, 60 or 90 days a season.
 • [b]Season[/b]: in Fixed mode, pick a season and press Enter. By the day, it follows the calendar.
+• [b]Deep snow[/b]: Default or Off.
 • It shows the day, the season, the weather now, the current spell and how long it lasts, and the snow depth.
 • Arrow keys to choose and change, Enter to apply, F5 or Esc to close.
 • The key can be changed in bin64\Seasons.ini (written on the first start, also editable in DMM's ASI config).
+
+[size=5][b]Testing menu (for videos and screenshots)[/b][/size]
+Set [b]ControlMenu = 1[/b] under [b][Testing][/b] in bin64\Seasons.ini (with DMM: Seasons' config in the ASI tab) and restart the game. Updating from 1.0.1: start the game once with 1.0.2 first (it adds the [Testing] section), or add it yourself. The Control Menu then gets more rows:
+• [b]Weather[/b]: Season, Clear, Rain or Snow (with Seasons on Fixed). Forced snow builds real snow depth, as snowfall does.
+• [b]Top temp.[/b]: the day's top temperature everywhere, -40 to +5 degrees. Nights are about 16 degrees colder than the top: -25 and colder can freeze you and NPCs to death.
+• [b]Snow depth[/b]: Snowfall (the real one), 0%, 25%, 50%, 75% or 100%. 100% shows full deep snow in winter at once.
+• [b]Calendar[/b]: jump to the first day of a season to see it change (with Seasons on By the day).
+Set them back to Season / Snowfall / Game's (and Seasons to By the day) when you're done. ControlMenu = 0 hides them again.
 
 [size=5][b]Install[/b][/size]
 [b]With DMM[/b]: drop the zip on DMM and turn Seasons on in the ASI tab. DMM puts Seasons.asi and its data folder into bin64 (and comes with its own ASI loader).
@@ -65,10 +76,10 @@ The Control Menu shows the snow depth as a percentage.
 2. From the zip's Seasons folder, copy Seasons.asi and the Seasons folder into Crimson Desert\bin64.
 3. Start the game.
 
-No game files are changed on disk: the season textures are served from bin64\Seasons\data while the game runs. Settings are kept in bin64\Seasons\Seasons.ini, a log in bin64\Seasons\Seasons.log.
+No game files are changed on disk: the season textures are served from bin64\Seasons\data while the game runs. Settings are kept in bin64\Seasons\Seasons.ini (the key and the testing menu in bin64\Seasons.ini), the snow depth of your saves in bin64\Seasons\snow_depth.txt, a log in bin64\Seasons\Seasons.log.
 
 [size=5][b]Uninstall[/b][/size]
-With DMM: delete Seasons in the ASI tab. By hand: delete bin64\Seasons.asi and the folder bin64\Seasons.
+With DMM: delete Seasons in the ASI tab. By hand: delete bin64\Seasons.asi, bin64\Seasons.ini and the folder bin64\Seasons.
 
 [size=5][b]Compatibility[/b][/size]
 • Works with and without ReShade / RenoDX (HDR included).

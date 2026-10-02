@@ -30,7 +30,9 @@
 //                    +0x120), and on the graphics card where the climate
 //                    texture is (with the walking-in-deep-snow effect)
 // Each season has its own temperatures (SHIFT). Deep snow builds up while it
-// snows (DEEP_SNOW rising to +6) and melts after a while without snow.
+// snows (DEEP_SNOW rising from DEEP_SNOW_LEAST to DEEP_SNOW_MOST) and melts
+// after a while without snow; the deeper the snow, the colder winter gets
+// (COLDER_AT_FULL_DEPTH), and the line goes down as much.
 // ---------------------------------------------------------------------------
 
 static const uintptr_t CLIMATE_VTABLE = 0x5AD1A10;
@@ -39,11 +41,19 @@ static const uintptr_t SNOW_START = 0x6D63848, SNOW_FULL = 0x6D63898, DEEP_SNOW 
 static const float DEEP_SNOW_NONE = -45.0f;     // below winter's climate texture (-40): no deep snow
 
 // Each season's days and nights against the game's own (summer is hot).
-static const float SHIFT[SEASON_COUNT] = { -6.0f, 4.0f, -8.0f, -22.0f };   // spring, summer, autumn, winter
+static const float SHIFT[SEASON_COUNT] = { -6.0f, 4.0f, -8.0f, -24.0f };   // spring, summer, autumn, winter
 // DEEP_SNOW as the snow deepens: the game's (-20, the snow mountains only)
-// with none, then from DEEP_SNOW_LEAST to DEEP_SNOW_MOST - the winter's day
-// temperatures in the middle lands - so it spreads from the colder places.
-static const float DEEP_SNOW_LEAST = 0.0f, DEEP_SNOW_MOST = 6.0f;
+// with none, then from DEEP_SNOW_LEAST to DEEP_SNOW_MOST - the middle lands'
+// winter days with winter LINE_WINTER degrees against the game's - so it
+// spreads from the colder places. Where winter is colder (SHIFT, the snow's
+// depth) the line goes down as much (SnowLine), so it spreads the same.
+static const float DEEP_SNOW_LEAST = 0.0f, DEEP_SNOW_MOST = 6.0f, LINE_WINTER = -22.0f;
+// Winter's days and nights this much colder at full depth (not in the desert).
+static const float COLDER_AT_FULL_DEPTH = 6.0f;
+// The game hurts the cold from about -40 degrees (tested without cold gear):
+// no season makes a night colder than this where the game's own are warmer
+// (guards froze to death in chilly forts); colder places keep the game's own.
+static const float NIGHT_FLOOR = -30.0f;
 
 static std::vector<uint32_t> g_map[SEASON_COUNT];   // in the game's layout; empty: none
 static std::vector<uintptr_t> g_objects;
@@ -51,16 +61,19 @@ static volatile LONG g_target = SUMMER;
 static HANDLE g_wake = NULL;
 static char g_ini[MAX_PATH];
 
-// The climate map's R: the ground cover the game wades through (snow in the
-// north, sand in the desert; 3 on the land). Winter keeps the land's and
-// deepens it with the snow, up to the winter texture's (the snow mountains').
-static std::vector<uint8_t> g_winterCover;         // the winter texture's R (0: none)
+// The climate map's R is the wind (R * 0.25; the game's own text for the
+// texture says so, about 60 in the snowy north): every season keeps the
+// land's own.
+static std::vector<uint8_t> g_wintry;              // 1: winter's texel (0: the desert, as in summer)
+static std::vector<uint32_t> g_lineMap;            // winter's days at LINE_WINTER (the top byte only)
+static std::vector<uint8_t> g_least;               // winter's coldest day top (byte) for NIGHT_FLOOR
 static std::vector<uint32_t> g_deepMap;
 static int g_deepMapPercent = -1;
 
 static volatile LONG g_test = CLIMATE_TEST_NONE;   // the day's top temperature everywhere (test)
 static std::vector<uint32_t> g_testMap;
 
+static volatile LONG g_deepOn = 1;                 // deep snow on (the player's choice)
 static volatile LONG g_deepTest = -1;               // test: -1 the snowfall's, else percent
 static volatile LONG g_deepShown = 0;               // percent, for the menu
 
@@ -96,9 +109,10 @@ static bool Camera(float* x, float* z)
 
 static float Top(uint32_t texel);
 
-// The coldest midday around the camera in the map the game gets, as the
-// game's deep snow test takes it (rva 3DC0C50: 3x3 texels of 80 m).
-static bool ColdestAround(const std::vector<uint32_t>& m, float* coldest)
+// The coldest midday around the camera in a map, as the game's deep snow
+// test takes it (rva 3DC0C50: 3x3 texels of 80 m); wintry: that texel is
+// winter's (g_wintry).
+static bool ColdestAround(const std::vector<uint32_t>& m, float* coldest, bool* wintry)
 {
     float x, z;
 
@@ -112,8 +126,14 @@ static bool ColdestAround(const std::vector<uint32_t>& m, float* coldest)
         for (int c = col - 1; c <= col + 1; ++c)
             if (r >= 0 && c >= 0 && r < (int)MAP_SIZE && c < (int)MAP_SIZE)
             {
-                float t = Top(m[(size_t)r * MAP_SIZE + c]);
-                least = t < least ? t : least;
+                size_t i = (size_t)r * MAP_SIZE + c;
+                float t = Top(m[i]);
+
+                if (t < least)
+                {
+                    least = t;
+                    *wintry = i < g_wintry.size() && g_wintry[i];
+                }
             }
 
     *coldest = least;
@@ -127,8 +147,12 @@ static bool ColdestAround(const std::vector<uint32_t>& m, float* coldest)
 // everywhere (its snow cover): with the game's line (-20) every place off
 // the roads waded in deep snow. So in winter the line is either where the
 // snow's depth puts it, when deep snow is due near the camera, or below
-// the winter texture, when it is not.
-static void SnowLine(Season season, const std::vector<uint32_t>& m)
+// the winter texture, when it is not. land: the map the line was set for
+// (g_lineMap); percent: the snow's depth; colder: how much colder winter's
+// texels are in the map the game gets (SHIFT, Deepened). Where the coldest
+// texel around is winter's, the line goes down as much, so the game's own
+// test takes the same places.
+static void SnowLine(Season season, const std::vector<uint32_t>& land, int percent, float colder)
 {
     if (!g_snowRead)
     {
@@ -141,20 +165,25 @@ static void SnowLine(Season season, const std::vector<uint32_t>& m)
             g_gameDeepFull);
     }
 
-    LONG test = g_deepTest;
-    float deep = test >= 0 ? test / 100.0f : WeatherSnowDepth();
-    float line = deep <= 0 ? g_gameDeep : DEEP_SNOW_LEAST + (DEEP_SNOW_MOST - DEEP_SNOW_LEAST) * deep;
-    float wantDeep = line, wantDeepFull = deep <= 0 ? g_gameDeepFull : line - 10.0f;
+    float deep = percent / 100.0f;
+    float line = percent <= 0 ? g_gameDeep : DEEP_SNOW_LEAST + (DEEP_SNOW_MOST - DEEP_SNOW_LEAST) * deep;
+    float wantDeep = line, wantDeepFull = percent <= 0 ? g_gameDeepFull : line - 10.0f;
 
     if (season == WINTER)
     {
         float coldest;
-        bool due = deep > 0 && ColdestAround(m, &coldest) && coldest < line;
+        bool wintry = false;
+        bool due = percent > 0 && ColdestAround(land, &coldest, &wintry) && coldest < line;
 
         if (!due)
         {
             wantDeep = DEEP_SNOW_NONE;
             wantDeepFull = DEEP_SNOW_NONE - 5.0f;
+        }
+        else if (wintry)
+        {
+            wantDeep = line - colder;
+            wantDeepFull = wantDeep - 10.0f;
         }
     }
 
@@ -185,6 +214,50 @@ static uint32_t TopByte(float degrees)
     return (uint32_t)(b < 0 ? 0 : b > 255 ? 255 : b);
 }
 
+// Day to night in a texel (G; rva 3DC0FE0): the night is this much colder.
+static float Range(uint32_t texel)
+{
+    return (1.0f - ((texel >> 16) & 0xFF) / 255.0f) * 18.0f + 7.0f;
+}
+
+// The texel's top byte for a day's top temperature, rounded up (a floor).
+static uint32_t TopByteUp(float degrees)
+{
+    int b = (int)ceilf((degrees / 50.0f + 1.0f) / 2.0f * 255.0f - 0.001f);
+    return (uint32_t)(b < 0 ? 0 : b > 255 ? 255 : b);
+}
+
+// The coldest day top byte a season may give a texel (rest: its G): its
+// night no colder than NIGHT_FLOOR.
+static uint32_t Least(uint32_t rest)
+{
+    return TopByteUp(NIGHT_FLOOR + Range(rest));
+}
+
+// The game blends the 2x2 texels around a spot (rva 269F080): where its own
+// nights are colder than NIGHT_FLOOR, that texel and the ones next to it
+// keep the game's own temperatures, so the blend there is the game's own.
+static std::vector<uint8_t> GameCold(const std::vector<uint32_t>& game)
+{
+    std::vector<uint8_t> cold(game.size(), 0);
+
+    for (int r = 0; r < (int)MAP_SIZE; ++r)
+        for (int c = 0; c < (int)MAP_SIZE; ++c)
+        {
+            uint32_t t = game[(size_t)r * MAP_SIZE + c];
+
+            if (Top(t) - Range(t) >= NIGHT_FLOOR)
+                continue;
+
+            for (int dr = -1; dr <= 1; ++dr)
+                for (int dc = -1; dc <= 1; ++dc)
+                    if (r + dr >= 0 && c + dc >= 0 && r + dr < (int)MAP_SIZE && c + dc < (int)MAP_SIZE)
+                        cold[(size_t)(r + dr) * MAP_SIZE + c + dc] = 1;
+        }
+
+    return cold;
+}
+
 // A season's climate texture in the game's layout.
 static bool Load(Season season, std::vector<uint32_t>* m)
 {
@@ -210,7 +283,8 @@ static bool Load(Season season, std::vector<uint32_t>* m)
 // Each season: the game's own (summer's climate texture) SHIFT degrees warmer
 // or colder. Winter takes the winter texture's other channels (the snow
 // mountains'); where the winter texture keeps summer's (the desert), it stays
-// as in summer.
+// as in summer - but not where summer's is the winter texture's snow already
+// (-40 degrees, patches in the snow mountains).
 static void Build()
 {
     std::vector<uint32_t> game, winter;
@@ -226,8 +300,11 @@ static void Build()
     if (!haveWinter)
         Log("climate: no winter climate map in the season data");
 
-    size_t kept = 0;
-    g_winterCover.assign(game.size(), 0);
+    size_t kept = 0, floored[SEASON_COUNT] = {}, own = 0;
+    std::vector<uint8_t> cold = game.size() == (size_t)MAP_SIZE * MAP_SIZE ? GameCold(game) : std::vector<uint8_t>(game.size(), 0);
+    g_least.assign(game.size(), 0);
+    g_wintry.assign(game.size(), 0);
+    g_lineMap.assign(game.size(), 0);
 
     for (int s = 0; s < SEASON_COUNT; ++s)
     {
@@ -238,30 +315,66 @@ static void Build()
         {
             uint32_t rest = game[i] & 0x00FFFFFF;
             float shift = SHIFT[s];
+            bool warm = false;
 
             if (s == WINTER && haveWinter)
             {
-                if (winter[i] == game[i])
+                if (winter[i] == game[i] && Top(game[i]) > -40.0f)
                 {
                     shift = SHIFT[SUMMER];
+                    warm = true;
                     ++kept;
                 }
                 else
                 {
-                    // The winter texture's G and A; R (the ground cover the
-                    // game wades through, deep in the snowy north) stays the
-                    // land's own and deepens with the snow (Deepened).
+                    // The winter texture's G and A; R (the wind) stays the
+                    // land's own. Where the game is that cold (GameCold),
+                    // its own G too.
                     rest = (winter[i] & 0x00FF00FF) | (game[i] & 0x0000FF00);
-                    g_winterCover[i] = (uint8_t)((winter[i] >> 8) & 0xFF);
+
+                    if (cold[i])
+                        rest = (rest & 0xFF00FFFF) | (game[i] & 0x00FF0000);
+                    else
+                        g_wintry[i] = 1;
                 }
             }
 
-            m[i] = rest | (TopByte(Top(game[i]) + shift) << 24);
+            // Where the game is that cold, its own temperatures (GameCold).
+            if (shift < 0 && cold[i])
+            {
+                shift = 0;
+                own += s == WINTER;
+            }
+
+            uint32_t b = TopByte(Top(game[i]) + shift);
+
+            if (shift < 0)
+            {
+                uint32_t least = Least(rest);
+
+                if (b < least)
+                {
+                    b = least;
+                    ++floored[s];
+                }
+
+                if (s == WINTER)
+                    g_least[i] = (uint8_t)least;
+            }
+
+            m[i] = rest | (b << 24);
+
+            // The line over the land's winter days; where the season keeps
+            // the game's (the desert, the game's cold), over those.
+            if (s == WINTER)
+                g_lineMap[i] = (g_wintry[i] ? TopByte(Top(game[i]) + LINE_WINTER) : b) << 24;
         }
     }
 
     Log("climate: spring %+.0f, summer %+.0f, autumn %+.0f, winter %+.0f degrees against the game's (%zu texels warm in winter: the desert)",
         SHIFT[SPRING], SHIFT[SUMMER], SHIFT[AUTUMN], SHIFT[WINTER], kept);
+    Log("climate: nights no colder than %.0f: %zu texels held there in spring, %zu in autumn, %zu in winter; %zu keep the game's own cold",
+        NIGHT_FLOOR, floored[SPRING], floored[AUTUMN], floored[WINTER], own);
 }
 
 static bool IsMap(uintptr_t o, uintptr_t vtable)
@@ -339,25 +452,28 @@ static bool Bring(uintptr_t o, const uint32_t* m, size_t count)
     }
 }
 
-// Winter's map with the ground cover as deep as the snow (whole percents).
-static const std::vector<uint32_t>& Deepened(float deep)
+// How much colder winter is with the snow this deep (whole percents).
+static float Colder(int percent)
 {
-    int percent = (int)(deep * 100 + 0.5f);
+    return COLDER_AT_FULL_DEPTH * (percent / 100.0f);
+}
 
+// Winter's map as deep as the snow (whole percents): the days and nights
+// colder (Colder, down to NIGHT_FLOOR; the desert and the game's cold stay
+// as they are).
+static const std::vector<uint32_t>& Deepened(int percent)
+{
     if (percent != g_deepMapPercent || g_deepMap.size() != g_map[WINTER].size())
     {
         g_deepMap = g_map[WINTER];
+        float colder = Colder(percent);
 
-        for (size_t i = 0; i < g_deepMap.size() && i < g_winterCover.size(); ++i)
-        {
-            uint32_t land = (g_deepMap[i] >> 8) & 0xFF, snow = g_winterCover[i];
-
-            if (snow > land)
+        for (size_t i = 0; i < g_deepMap.size() && i < g_wintry.size() && i < g_least.size() && colder > 0; ++i)
+            if (g_wintry[i])
             {
-                uint32_t r = land + (snow - land) * (uint32_t)percent / 100;
-                g_deepMap[i] = (g_deepMap[i] & 0xFFFF00FF) | (r << 8);
+                uint32_t t = g_deepMap[i], b = TopByte(Top(t) - colder);
+                g_deepMap[i] = (t & 0x00FFFFFF) | ((b > g_least[i] ? b : g_least[i]) << 24);
             }
-        }
 
         g_deepMapPercent = percent;
     }
@@ -376,20 +492,31 @@ static DWORD WINAPI ClimateThread(LPVOID)
         WaitForSingleObject(g_wake, 2000);
         Season target = (Season)g_target;
         LONG deepTest = g_deepTest;
-        InterlockedExchange(&g_deepShown, deepTest >= 0 ? deepTest : (LONG)(WeatherSnowDepth() * 100 + 0.5f));
+        float deep = deepTest >= 0 ? deepTest / 100.0f : g_deepOn ? WeatherSnowDepth() : 0.0f;
+        int percent = (int)(deep * 100 + 0.5f);
+        InterlockedExchange(&g_deepShown, percent);
 
         const std::vector<uint32_t>* pick = &g_map[target];
 
         if (pick->empty())
             continue;
 
+        // How much colder winter's texels are than the line was set for:
+        // the season's (SHIFT against LINE_WINTER) and the snow's.
+        float colder = 0;
+
         if (target == WINTER)
-            pick = &Deepened(deepTest >= 0 ? deepTest / 100.0f : WeatherSnowDepth());
+        {
+            pick = &Deepened(percent);
+            colder = LINE_WINTER - SHIFT[WINTER] + Colder(percent);
+        }
 
         LONG test = g_test;
 
         if (test != CLIMATE_TEST_NONE)
         {
+            colder = 0;     // the test's temperature everywhere, not the season's
+
             g_testMap = *pick;
 
             for (uint32_t& t : g_testMap)
@@ -422,8 +549,11 @@ static DWORD WINAPI ClimateThread(LPVOID)
             }
         }
 
+        // The line over winter's days as it was set for (g_lineMap).
+        bool setFor = target == WINTER && test == CLIMATE_TEST_NONE && g_lineMap.size() == m.size();
+
         if (!g_objects.empty())
-            SnowLine(target, m);
+            SnowLine(target, setFor ? g_lineMap : m, percent, setFor ? colder : 0.0f);
 
         int changed = 0;
 
@@ -441,6 +571,10 @@ void ClimateStart(Season start, const char* ini)
 {
     g_target = start;
     strcpy_s(g_ini, ini);
+    char deep[8] = { 0 };
+    GetPrivateProfileStringA("Seasons", "deep_snow", "default", deep, sizeof(deep), ini);
+    g_deepOn = _stricmp(deep, "off") != 0 && _stricmp(deep, "0") != 0 && _stricmp(deep, "no") != 0 && _stricmp(deep, "false") != 0;
+    Log("climate: deep snow %s", g_deepOn ? "default" : "off");
     g_wake = CreateEventW(NULL, FALSE, FALSE, NULL);
     CloseHandle(CreateThread(NULL, 0, ClimateThread, NULL, 0, NULL));
 }
@@ -474,3 +608,13 @@ void ClimateDeepTest(int percent)
 int ClimateDeepTestPercent() { return g_deepTest; }
 
 int ClimateDeepPercent() { return g_deepShown; }
+
+void ClimateSetDeepSnow(bool on)
+{
+    InterlockedExchange(&g_deepOn, on ? 1 : 0);
+
+    if (g_wake)
+        SetEvent(g_wake);
+}
+
+bool ClimateDeepSnow() { return g_deepOn != 0; }

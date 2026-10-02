@@ -198,3 +198,25 @@ build/release: "Seasons - Winter" (0002 climate_texture_1), "Seasons - Spring" (
   GetSnowIntensity / GetRainIntensity (rva 3DC3AC0 / 3DC3A10, altitude-faded unless mgr+0x31) -> effects + HUD.
   Holding W+0x168 = 1 (and +0x130 cloud) -> snowfall, HUD "Snowy" (user confirmed).
   0.32: compose hook writes the season's spells after the game composes.
+
+## 1.0.2 (2026-10-02)
+- Wading-in-deep-snow effect = GPU: the climate texture (winter -40.2 on all winter land) below DEEP_SNOW (6D638E8) /
+  DEEP_SNOW_FULL (6D63938). Winter keeps the line at -45 unless deep snow is due near the camera (3x3 coldest midday
+  below the depth line); the game's own CPU test (3DC0C50 -> climate mgr +0x120) uses the same line on the CPU map.
+- The CPU climate map's R is WIND (GetClimateAt gives R*0.25, clamped 0..60; the game's own text for the texture:
+  "R: Temperature, G: Humidity, B: WidSpeed" in its channel order = this plugin's B top, G range, R wind; about 60 in
+  the snowy north, 85-106 in the desert). 1.0.1 raised it with the snow depth (taken for ground cover): winds up to
+  the north's blizzard strength. 1.0.2 keeps the land's own.
+- The sampler (rva 269F080) is bilinear: own texel + the nearer column/row neighbours, weights by distance to the
+  texel centres. Night = top - ((1-G/255)*18+7), linear in G, so a spot's night is the blend of its 4 texels' nights.
+- The game hurts the cold from about -40 C felt without cold gear (user test with the Top temp. row at midday; the
+  meter's second coldest level). 1.0.1's winter (-22, plus deep snow) took chilly forts below that: players froze,
+  guards froze to death. 1.0.2: NIGHT_FLOOR -30 - every cold season's day top is held so the night stays >= -30; where
+  the game's own night is colder (about 39k texels, the snow mountains), that texel and its 3x3 neighbours keep the
+  game's own temperatures (and winter its own G), so the blend there is the game's own. The deep snow line is set
+  over the land's winter days at -22 (g_lineMap) and goes down by the extra cold where the coldest texel is wintry.
+- The game's clock in a loading screen goes to 0.00, then to the world's hour (main menu: stands at 12.00). The HUD's
+  day (6A6D218) can change a moment after the hour. The saves can't hold the mod's snow depth: 1.0.2 records
+  (day*24+hour, depth, dry hours) every 0.25 game h in Seasons\snow_depth.txt and restores it when a world loads
+  (a jump decided once the day stood 2 s and the clock runs: loading screen dip, >= 24 h, or a time the clock did not
+  get to = load; else slept through).

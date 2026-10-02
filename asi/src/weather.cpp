@@ -4,10 +4,13 @@
 #include "menu.h"
 
 #include <windows.h>
+#include <math.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#include <vector>
 
 #include "MinHook.h"
 
@@ -86,8 +89,108 @@ static double g_lastSnow = 0;
 static volatile float g_depth = 0;           // the snow's depth (0..1)
 static volatile float g_hour = -1;           // the game's hour, read in the climate update
 static DWORD g_ticking = 0;                  // when the clock last moved on as the game runs
-static const DWORD TICKING_MS = 60000;       // a jump counts as skipped time within this of it
 static char g_ini[MAX_PATH];
+
+// The snow's depth by the game's time (day * 24 + hour): the game's saves do
+// not keep it, so a world that loads gets the depth last recorded at its
+// time, and how long it had been dry then (Seasons\snow_depth.txt, a line a
+// quarter game hour; the latest play of those hours counts).
+struct DepthAt
+{
+    double time;
+    float depth;
+    float dry;                  // game hours since it last snowed (0: not known)
+};
+
+static std::vector<DepthAt> g_history;      // as written, the latest last
+static char g_historyPath[MAX_PATH];
+static const double RECORD_EVERY = 0.25;    // game hours
+static const size_t HISTORY_MOST = 60000, HISTORY_KEEP = 40000;    // about 400 game days kept
+static const float DRY_MOST = 99.0f;
+
+static float Depth01(float d) { return d < 0 ? 0 : d > 1 ? 1 : d; }
+
+static void WriteLine(FILE* f, const DepthAt& d)
+{
+    fprintf(f, "%.3f %.3f %.2f\n", d.time, d.depth, d.dry);
+}
+
+// A line a record; a damaged line is skipped.
+static void LoadHistory()
+{
+    FILE* f = NULL;
+
+    if (!g_historyPath[0] || fopen_s(&f, g_historyPath, "r") != 0 || !f)
+        return;
+
+    char line[64];
+
+    while (fgets(line, sizeof(line), f))
+    {
+        DepthAt d = { 0, 0, 0 };
+        int n = sscanf_s(line, "%lf %f %f", &d.time, &d.depth, &d.dry);
+
+        if (n >= 2 && d.time >= 0)
+        {
+            d.depth = Depth01(d.depth);
+            d.dry = n < 3 || d.dry < 0 ? 0 : d.dry > DRY_MOST ? DRY_MOST : d.dry;
+            g_history.push_back(d);
+        }
+    }
+
+    fclose(f);
+}
+
+static void Record(double time, float depth, float dry)
+{
+    DepthAt d = { time, depth, dry < 0 ? 0 : dry > DRY_MOST ? DRY_MOST : dry };
+    g_history.push_back(d);
+
+    if (!g_historyPath[0])
+        return;
+
+    FILE* f = NULL;
+
+    if (g_history.size() <= HISTORY_MOST)
+    {
+        if (fopen_s(&f, g_historyPath, "a") == 0 && f)
+        {
+            WriteLine(f, d);
+            fclose(f);
+        }
+
+        return;
+    }
+
+    // Too long: the latest kept, written anew and put in place.
+    g_history.erase(g_history.begin(), g_history.end() - HISTORY_KEEP);
+    char fresh[MAX_PATH];
+
+    if (strlen(g_historyPath) + 5 >= MAX_PATH)
+        return;
+
+    sprintf_s(fresh, "%s.new", g_historyPath);
+
+    if (fopen_s(&f, fresh, "w") != 0 || !f)
+        return;
+
+    for (const DepthAt& h : g_history)
+        WriteLine(f, h);
+
+    fclose(f);
+    MoveFileExA(fresh, g_historyPath, MOVEFILE_REPLACE_EXISTING);
+}
+
+// The record last written for a time (up to a game hour before it; the
+// world's own time is read a moment after it loads).
+static const DepthAt* DepthAtTime(double time)
+{
+    for (size_t i = g_history.size(); i-- > 0;)
+        if (g_history[i].time <= time + 0.02 && time - g_history[i].time <= 1.0)
+            return &g_history[i];
+
+    return NULL;
+}
 
 static void HookQuery(uintptr_t actor, uint32_t* flags, uint8_t* indoors)
 {
@@ -280,12 +383,26 @@ static void Step(double hours, bool live)
     KeepDepth(before);
 }
 
-// Follows the game's hour: time the game skips (sleeping, waiting) is played
-// through in steps; a paused game stops the weather too.
+// Follows the game's hour; a paused game stops the weather too. A jump of the
+// clock is either time slept or waited through (played through in steps) or
+// a world loading (a loading screen's clock goes to 0.00, then to the
+// world's hour). Which one is known once the world's time is: the day the
+// HUD shows standing for 2 seconds and the clock running again (not in the
+// main menu or a loading screen). A world that loads - the first, or one at
+// a time the clock did not get to - takes the depth it had then.
 static DWORD WINAPI DirectorThread(LPVOID)
 {
     srand(GetTickCount());
     float last = -1;
+    int day = 0;
+    DWORD dayAt = 0, jumpAt = 0;
+    bool loaded = true;
+    bool dip = false;           // the clock jumped to 0.00 and has not run since
+    double lastTime = -1;       // the world's time last known (day * 24 + hour)
+    double since = 0;           // game hours the clock ran on since
+    double skipped = 0;         // game hours it jumped since
+    double recorded = -1;
+    float recordedDepth = -1;
 
     for (;;)
     {
@@ -308,26 +425,122 @@ static DWORD WINAPI DirectorThread(LPVOID)
             passed += 24.0;     // past midnight (or a sleep over it)
 
         last = hour;
-        bool live = passed <= 0.5;
         DWORD now = GetTickCount();
 
-        if (live && passed > 0)
-            g_ticking = now;
-
-        // A jump with the clock standing still before it is a world loading
-        // (from the main menu, whose clock stands at noon), not time slept
-        // or waited through: nothing to play through.
-        if (!live && (!g_ticking || now - g_ticking > TICKING_MS))
+        if (passed <= 0.5)
         {
-            Log("weather: the clock jumped to %.2f (a world loaded) - not played through", hour);
-            continue;
+            if (passed > 0)
+            {
+                // The clock runs again after a jump that stood: the HUD's
+                // day may follow from here.
+                if (skipped > 0 && now - g_ticking > 2000)
+                    jumpAt = now;
+
+                g_ticking = now;
+                dip = false;
+            }
+
+            for (double left = passed; left > 0; left -= 0.25)
+                Step(left < 0.25 ? left : 0.25, true);
+
+            since += passed;
+        }
+        else
+        {
+            Log("weather: the clock jumped %.1f game hours to %.2f", passed, hour);
+
+            // 0.00 and then the world's hour, with no time between: a
+            // loading screen (a sleep is one jump, and the clock runs after).
+            if (dip && !loaded)
+            {
+                Log("weather: a loading screen - a world loaded");
+                loaded = true;
+            }
+
+            dip = hour < 0.01f;
+            skipped += passed;
+            dayAt = jumpAt = now;       // the HUD's day may follow a moment later
         }
 
-        for (double left = passed; left > 0; left -= 0.25)
-            Step(left < 0.25 ? left : 0.25, live);
+        int shown = GameDay();
 
-        if (passed > 1.0)
-            Log("weather: %.1f game hours went by (the clock at %.2f), snow depth %d%%", passed, hour, (int)(g_depth * 100 + 0.5f));
+        if (shown != day)
+        {
+            day = shown;
+            dayAt = now;
+        }
+
+        // Just after midnight the day may change a moment after the hour.
+        if (day <= 0 || now - dayAt < 2000 || !g_ticking || now - g_ticking > 2000 || hour < 0.25f)
+            continue;
+
+        double time = day * 24.0 + hour;
+        double expected = lastTime + since + skipped;
+
+        // No sleep skips a whole day.
+        if (!loaded && skipped >= 24.0)
+        {
+            Log("weather: the clock jumped %.1f game hours in all - a world loaded", skipped);
+            loaded = true;
+        }
+
+        // A day behind after a jump past midnight: the HUD's day not turned
+        // yet (waited for up to 10 seconds).
+        if (!loaded && lastTime >= 0 && fabs(time + 24.0 - expected) <= 1.0 && now - jumpAt < 10000)
+            continue;
+
+        if (!loaded && lastTime >= 0 && fabs(time - expected) > 1.0)
+        {
+            Log("weather: the game's time went from day %d %.2f to day %d %.2f (a world loaded)", (int)(lastTime / 24), fmod(lastTime, 24.0),
+                day, hour);
+            loaded = true;
+        }
+
+        if (loaded)
+        {
+            float before = g_depth;
+            const DepthAt* then = DepthAtTime(time);
+
+            // How long it had been dry then (not known: the depth holds a while).
+            g_lastSnow = g_clock;
+
+            if (then)
+            {
+                g_depth = then->depth;
+                g_lastSnow = g_clock - then->dry;
+                Log("weather: day %d %.2f - snow depth %d%%, dry for %.1f game hours (as it was then)", day, hour,
+                    (int)(then->depth * 100 + 0.5f), then->dry);
+            }
+            else if (!g_history.empty())
+            {
+                g_depth = 0;
+                Log("weather: day %d %.2f - no snow depth known for that time: none", day, hour);
+            }
+            else
+                Log("weather: day %d %.2f - snow depth %d%% (nothing recorded yet)", day, hour, (int)(g_depth * 100 + 0.5f));
+
+            KeepDepth(before);
+            recorded = -1;
+        }
+        else if (skipped > 0)
+        {
+            // Slept or waited through.
+            for (double left = skipped; left > 0; left -= 0.25)
+                Step(left < 0.25 ? left : 0.25, false);
+
+            Log("weather: %.1f game hours went by (day %d %.2f), snow depth %d%%", skipped, day, hour, (int)(g_depth * 100 + 0.5f));
+        }
+
+        loaded = false;
+        lastTime = time;
+        since = skipped = 0;
+
+        if (recorded < 0 || fabs(time - recorded) >= RECORD_EVERY || fabsf(g_depth - recordedDepth) >= 0.02f)
+        {
+            Record(time, g_depth, (float)(g_clock - g_lastSnow));
+            recorded = time;
+            recordedDepth = g_depth;
+        }
 
     }
 }
@@ -378,6 +591,20 @@ void WeatherInit(const char* ini)
     GetPrivateProfileStringA("Seasons", "snow_depth", "0", v, sizeof(v), ini);
     float depth = (float)atof(v);
     g_depth = depth < 0 ? 0 : depth > 1 ? 1 : depth;
+
+    // Next to the ini (none if the path would be too long).
+    char folder[MAX_PATH];
+    strcpy_s(folder, ini);
+    char* slash = strrchr(folder, '\\');
+    *(slash ? slash : folder) = 0;
+
+    g_historyPath[0] = 0;
+
+    if (strlen(folder) + 16 < MAX_PATH)
+        sprintf_s(g_historyPath, "%s\\snow_depth.txt", folder);
+
+    LoadHistory();
+    Log("weather: snow depth %d%%, %zu times of it recorded", (int)(g_depth * 100 + 0.5f), g_history.size());
     CloseHandle(CreateThread(NULL, 0, HookThread, NULL, 0, NULL));
 }
 

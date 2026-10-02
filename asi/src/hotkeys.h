@@ -5,3 +5,6 @@
 void HotkeysLoad(const char* bin64);
 bool HotkeyDown();
 const wchar_t* HotkeyName();
+
+// The Control Menu's testing rows ([Testing] ControlMenu = 1 in the same ini).
+bool TestingMenu();

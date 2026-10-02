@@ -1,0 +1,10 @@
+1.0.2
+- Fixed: winter could make chilly places (hill forts, highlands) deadly cold - players froze, and guards froze to death. No season makes a night colder than -30 degrees now where the game's own nights are warmer (the game hurts from about -40); the snow mountains keep the game's own cold, autumn and spring included.
+- Fixed: the snow depth was one value for all saves, so loading a save started with the last session's depth. Loading a save now brings back the depth last recorded at its in-game day and hour, and how long it had been dry (Seasons\snow_depth.txt).
+- Fixed: loading a save from inside the game could count as hours slept and run a snowfall or a melt through the loading screen.
+- Fixed: deep snow raised the wind (a channel of the climate map taken for ground cover) up to the snowy north's blizzard strength. Winter keeps the game's own winds now.
+- New: a testing menu for videos and screenshots - set ControlMenu = 1 under [Testing] in bin64\Seasons.ini for rows to set the weather (clear, rain, snow), the temperature and the snow depth (0 to 100%: deep snow at once), and to jump the calendar.
+- New: Deep snow Default/Off in the Control Menu. Off: no deep snow, nor its extra cold; winter keeps its snow cover, snowfall and cold.
+- New: 45, 60 and 90 days a season as Length options in the Control Menu.
+- Changed: winter is 2 degrees colder (24 below the game's own; days around 0 to +1 in the middle lands, nights around -15). Deep snow spreads as before.
+- New: deep snow makes winter colder - up to 6 degrees colder at full depth, days and nights, warming up again as it melts. Deep snow spreads as before.

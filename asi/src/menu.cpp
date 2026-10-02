@@ -26,7 +26,7 @@ static char g_ini[MAX_PATH];
 static volatile LONG g_auto = 1;         // the season by the day (or fixed)
 static SRWLOCK g_lock = SRWLOCK_INIT;
 
-enum Row { ROW_MODE, ROW_LENGTH, ROW_SEASON, ROW_WEATHER, ROW_COLD, ROW_DEEP, ROW_DAY, ROW_COUNT };
+enum Row { ROW_MODE, ROW_LENGTH, ROW_SEASON, ROW_SNOW, ROW_WEATHER, ROW_COLD, ROW_DEEP, ROW_DAY, ROW_COUNT };
 
 // Test: the calendar on the first day of a season (the year starts in
 // summer: summer, autumn, winter, spring).
@@ -39,8 +39,9 @@ static const wchar_t* const WEATHER_LABELS[] = { L"Season", L"Clear", L"Rain", L
 static const int WEATHER_FORCES[] = { WEATHER_FORCE_NONE, WEATHER_FORCE_CLEAR, WEATHER_FORCE_RAIN, WEATHER_FORCE_SNOW };
 static const int WEATHER_COUNT = 4;
 
-// The test rows (weather, top temperature, deep snow) only with tests=1 in
-// the ini: players get the calendar and the season.
+// The testing rows (weather, top temperature, snow depth, calendar) only with
+// [Testing] ControlMenu = 1 in bin64's Seasons.ini (for videos; also tests=1
+// in the settings): players get the calendar, the season and deep snow.
 static bool g_tests = false;
 
 static bool Shown(int row)
@@ -80,9 +81,9 @@ static int ColdIndex()
 }
 
 // Test: how deep the snow is (Snowfall: as the snowfall made it).
-static const wchar_t* const DEEP_LABELS[] = { L"Snowfall", L"None", L"Half", L"Deepest" };
-static const int DEEP_PERCENT[] = { -1, 0, 50, 100 };
-static const int DEEP_COUNT = 4;
+static const wchar_t* const DEEP_LABELS[] = { L"Snowfall", L"0%", L"25%", L"50%", L"75%", L"100%" };
+static const int DEEP_PERCENT[] = { -1, 0, 25, 50, 75, 100 };
+static const int DEEP_COUNT = 6;
 
 static int DeepIndex()
 {
@@ -95,9 +96,11 @@ static int DeepIndex()
 
 static const wchar_t* const SEASON_LABELS[SEASON_COUNT] = { L"Spring", L"Summer", L"Autumn", L"Winter" };
 static const wchar_t* const MODE_LABELS[] = { L"By the day", L"Fixed" };
-static const wchar_t* const LENGTH_LABELS[] = { L"3 days", L"7 days", L"14 days", L"30 days" };
-static const int LENGTHS[] = { 3, 7, 14, 30 };
-static const int LENGTH_COUNT = 4;
+static const wchar_t* const SNOW_LABELS[] = { L"Default", L"Off" };    // deep snow
+static const wchar_t* const LENGTH_LABELS[] = { L"3 days", L"7 days", L"14 days", L"30 days", L"45 days", L"60 days", L"90 days" };
+static const int LENGTHS[] = { 3, 7, 14, 30, 45, 60, 90 };
+static const int LENGTH_COUNT = 7;
+static const int LENGTH_DEFAULT = 3;    // 30 days
 
 static int g_row = ROW_SEASON;
 static int g_season = SUMMER;       // chosen in the menu (applied with Enter)
@@ -124,7 +127,7 @@ static int LengthIndex()
         if (LENGTHS[i] == g_days)
             return i;
 
-    return LENGTH_COUNT - 1;
+    return LENGTH_DEFAULT;
 }
 
 static void SaveSettings()
@@ -133,6 +136,7 @@ static void SaveSettings()
     WritePrivateProfileStringA("Seasons", "mode", g_auto ? "day" : "fixed", g_ini);
     sprintf_s(v, "%ld", g_days);
     WritePrivateProfileStringA("Seasons", "days_per_season", v, g_ini);
+    WritePrivateProfileStringA("Seasons", "deep_snow", ClimateDeepSnow() ? "default" : "off", g_ini);
 }
 static std::wstring g_notice;
 static DWORD g_noticeAt = 0;
@@ -311,12 +315,13 @@ static const wchar_t* const SEASON_LINES[SEASON_COUNT] = {
     L"The leaves turn gold, and rain comes often.",
     L"Snow and cold. Deep snow builds up while it snows.",
 };
+static const wchar_t* const WINTER_LINE_NO_DEEP = L"Snow and cold, and it snows often.";
 
 static void Toast(Season season)
 {
     AcquireSRWLockExclusive(&g_toastLock);
     g_toastTitle = std::wstring(SEASON_LABELS[season]) + L" has come";
-    g_toastText = SEASON_LINES[season];
+    g_toastText = season == WINTER && !ClimateDeepSnow() ? WINTER_LINE_NO_DEEP : SEASON_LINES[season];
     g_toastAt = GetTickCount();
     ReleaseSRWLockExclusive(&g_toastLock);
     OverlaySetDrawing(true);
@@ -380,7 +385,7 @@ static void MenuDraw(const OverlayDrawContext& ctx)
 
     // Panel on the right, like Character Creator's.
     float x0 = ctx.width - 624 * s, x1 = ctx.width - 24 * s;
-    float y0 = 50 * s, y1 = y0 + (g_tests ? 880 : 640) * s;
+    float y0 = 50 * s, y1 = y0 + (g_tests ? 940 : 700) * s;
     float fadeX = x0 - 90 * s;
     st.panel->SetStartPoint(D2D1::Point2F(fadeX, 0));
     st.panel->SetEndPoint(D2D1::Point2F(x1, 0));
@@ -408,26 +413,33 @@ static void MenuDraw(const OverlayDrawContext& ctx)
     Choices(dc, row, L"Seasons", MODE_LABELS, 2, g_auto ? 0 : 1, g_auto ? 0 : 1, g_row == ROW_MODE, gx0, gx1);
     Choices(dc, row + 60 * s, L"Length", LENGTH_LABELS, LENGTH_COUNT, LengthIndex(), LengthIndex(), g_row == ROW_LENGTH, gx0, gx1);
     Choices(dc, row + 120 * s, L"Season", SEASON_LABELS, SEASON_COUNT, g_season, now, g_row == ROW_SEASON, gx0, gx1, Locked(ROW_SEASON));
-    float next = row + 180 * s;
+    int snow = ClimateDeepSnow() ? 0 : 1;
+    Choices(dc, row + 180 * s, L"Deep snow", SNOW_LABELS, 2, snow, snow, g_row == ROW_SNOW, gx0, gx1);
+    float next = row + 240 * s;
 
     if (g_tests)
     {
         Choices(dc, next, L"Weather", WEATHER_LABELS, WEATHER_COUNT, WeatherIndex(), WeatherIndex(), g_row == ROW_WEATHER, gx0, gx1,
                 Locked(ROW_WEATHER));
         Choices(dc, next + 60 * s, L"Top temp.", COLD_LABELS, COLD_COUNT, ColdIndex(), ColdIndex(), g_row == ROW_COLD, gx0, gx1);
-        Choices(dc, next + 120 * s, L"Deep snow", DEEP_LABELS, DEEP_COUNT, DeepIndex(), DeepIndex(), g_row == ROW_DEEP, gx0, gx1);
+        Choices(dc, next + 120 * s, L"Snow depth", DEEP_LABELS, DEEP_COUNT, DeepIndex(), DeepIndex(), g_row == ROW_DEEP, gx0, gx1);
         Choices(dc, next + 180 * s, L"Calendar", DAY_LABELS, DAY_COUNT, g_dayChoice, g_dayChoice, g_row == ROW_DAY, gx0, gx1);
         next += 240 * s;
     }
 
-    wchar_t weather[200];
+    wchar_t weather[200], depth[40];
+
+    if (ClimateDeepSnow() || ClimateDeepTestPercent() >= 0)
+        swprintf_s(depth, L"Snow depth: %d%%", ClimateDeepPercent());
+    else
+        wcscpy_s(depth, L"Deep snow: off");
 
     if (WeatherSpell())
-        swprintf_s(weather, L"Weather now: %s    %s %d%%, %.0f h left    Snow depth: %d%%", WEATHER_NAMES[WeatherNow()],
-                   now == WINTER ? L"Snowfall" : L"Rain", WeatherSpellPercent(), WeatherHoursLeft(), ClimateDeepPercent());
+        swprintf_s(weather, L"Weather now: %s    %s %d%%, %.0f h left    %s", WEATHER_NAMES[WeatherNow()],
+                   now == WINTER ? L"Snowfall" : L"Rain", WeatherSpellPercent(), WeatherHoursLeft(), depth);
     else
-        swprintf_s(weather, L"Weather now: %s    Dry, next roll in %.0f h    Snow depth: %d%%", WEATHER_NAMES[WeatherNow()],
-                   WeatherHoursLeft(), ClimateDeepPercent());
+        swprintf_s(weather, L"Weather now: %s    Dry, next roll in %.0f h    %s", WEATHER_NAMES[WeatherNow()],
+                   WeatherHoursLeft(), depth);
 
     Text(dc, weather, st.body, D2D1::RectF(gx0, next, gx1, next + 40 * s), st.text);
     row = next - 360 * s;       // the texts below follow
@@ -524,6 +536,17 @@ static void Change(int step)
         g_season = (g_season + step + SEASON_COUNT) % SEASON_COUNT;
         break;
 
+    case ROW_SNOW:
+    {
+        bool on = !ClimateDeepSnow();
+        ClimateSetDeepSnow(on);
+        SaveSettings();
+        g_notice = on ? L"Deep snow: builds up while it snows" : L"Deep snow off";
+        g_noticeAt = GetTickCount();
+        Log("menu: deep snow %s", on ? "default" : "off");
+        break;
+    }
+
     case ROW_WEATHER:
     {
         int i = (WeatherIndex() + step + WEATHER_COUNT) % WEATHER_COUNT;
@@ -537,9 +560,9 @@ static void Change(int step)
     {
         int i = (DeepIndex() + step + DEEP_COUNT) % DEEP_COUNT;
         ClimateDeepTest(DEEP_PERCENT[i]);
-        g_notice = i ? std::wstring(L"Deep snow: ") + DEEP_LABELS[i] : L"Deep snow follows the snowfall";
+        g_notice = i ? std::wstring(L"Snow depth: ") + DEEP_LABELS[i] + L" (test)" : L"The snow depth follows the snowfall";
         g_noticeAt = GetTickCount();
-        Log("menu: deep snow test %ls", DEEP_LABELS[i]);
+        Log("menu: snow depth test %ls", DEEP_LABELS[i]);
         break;
     }
 
@@ -647,11 +670,12 @@ void MenuStart(const char* ini)
     char mode[16] = { 0 };
     GetPrivateProfileStringA("Seasons", "mode", "day", mode, sizeof(mode), ini);
     g_auto = _stricmp(mode, "fixed") != 0;
-    g_tests = GetPrivateProfileIntA("Seasons", "tests", 0, ini) != 0;
+    g_tests = TestingMenu() || GetPrivateProfileIntA("Seasons", "tests", 0, ini) != 0;
     int days = (int)GetPrivateProfileIntA("Seasons", "days_per_season", 30, ini);
     g_days = days >= 1 && days <= 365 ? days : 30;
     SaveSettings();
-    Log("calendar: %s, %ld days a season", g_auto ? "by the day" : "fixed season", g_days);
+    Log("calendar: %s, %ld days a season, deep snow %s", g_auto ? "by the day" : "fixed season", g_days,
+        ClimateDeepSnow() ? "default" : "off");
 
     OverlaySetCallbacks(MenuDraw, MenuKey);
     OverlayInit();

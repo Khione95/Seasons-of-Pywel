@@ -1,0 +1,5 @@
+1.0.1
+- Fixed: in winter, walking off the roads showed the wading-in-deep-snow effect (for you and NPCs) even where there was no deep snow. The effect now only comes with the deep snow.
+- Fixed: loading a save from the main menu counted as hours slept, which could drop a whole snowfall and full deep snow on you at once.
+- New: a notice at the top right when a season begins ("Winter has come", ...).
+- New: the Control Menu key can be changed in bin64\Seasons.ini (written on the first start; also editable in DMM's ASI config).
