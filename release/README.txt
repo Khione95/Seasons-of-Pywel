@@ -1,4 +1,4 @@
-Seasons of Pywel 1.0.2 for Crimson Desert
+Seasons of Pywel 1.0.3 for Crimson Desert
 by Khione
 
 Four seasons that follow the in-game day, changing live while you play.
@@ -17,8 +17,8 @@ SEASONS
   game's own cold.
 
 WEATHER
-- Winter snows often; autumn rains often; spring has some rain; summer
-  only rarely. Clouds come with the rain and snow.
+- Winter snows often; autumn rains now and then; spring has some rain;
+  summer only rarely. Clouds come with the rain and snow.
 - Deep snow builds up while it snows (the snow depth in the menu) and
   melts after a while without snow, and soon after winter ends.
 - The deeper the snow, the colder it gets: up to 6 degrees colder at full

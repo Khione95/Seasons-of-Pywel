@@ -30,8 +30,8 @@ Days stay warmer than nights, as in the game, and fires still warm you up.
 [size=5][b]Weather[/b][/size]
 Every season has its own weather. Rain and snow come in [b]spells[/b] that the mod rolls on the game's clock:
 • [b]Winter[/b]: snow often (60% chance each roll), spells of 3 to 8 game hours, light to heavy.
-• [b]Autumn[/b]: rain often (50%), spells of 3 to 6 game hours, up to heavy rain.
-• [b]Spring[/b]: some rain (30%), spells of 2 to 5 game hours, light to moderate.
+• [b]Autumn[/b]: rain more often (25%), spells of 2 to 4 game hours, up to heavy rain.
+• [b]Spring[/b]: some rain (15%), spells of 1.5 to 3.5 game hours, light to moderate.
 • [b]Summer[/b]: rain only now and then (8%), short spells of 1 to 3 game hours. The game's own rain is mostly kept away too, so summers are dry and hot.
 After a spell, or when a roll stays dry, the sky stays clear for 4 to 8 game hours before the next roll.
 

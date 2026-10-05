@@ -220,3 +220,22 @@ build/release: "Seasons - Winter" (0002 climate_texture_1), "Seasons - Spring" (
   (day*24+hour, depth, dry hours) every 0.25 game h in Seasons\snow_depth.txt and restores it when a world loads
   (a jump decided once the day stood 2 s and the clock runs: loading screen dip, >= 24 h, or a time the clock did not
   get to = load; else slept through).
+
+## Snow trails: why far NPCs leave none (2026-10-02, static research, not tried in game)
+New trails are only stamped within +-32 m of the renderer's view point (renderer +0x8F8, most likely the camera). Four
+gates, all 32 m:
+- CPU dynamic capture box: global float 6A512FC = 32.0 (writable), read each frame at 3ABD596 (in 3ABD340, called from
+  3AC51AA), written only by the capture-quality applier 3BE0A60 at 3BE0EF7 (always 32; quality only sets the resolution
+  6A512F4 = 512 / 1024, which sizes the render targets once - do not change it).
+- Deformed-clipper capture: +-32 m from shared rdata vectors (1/32) loaded at 3ABD710 / 3ABD718 / 3ABD739; the trail
+  shader samples it at the dynamic capture's uv, so it must match the box.
+- Trail interaction region: 3rd call of 3AE1160 in GenerateTrails 3AEC220 (half 32 from 5D73504 at 3AEC3AD, eye -32
+  from 5D73A7C at 3AEC3BB, depth 64 at 3AEC3A7, res 256 at 3AEC399). Calls 1-2 = +-64 m, 1024 (the persistent trail
+  height / deformed maps: the hard upper limit).
+- GPU: GenerateCharacterCaptureCommand (6 .padxil in archive 0017, f3fb2935_13861f22_5_86852e00_*) culls characters with
+  dot(_viewDir, centre - _viewPos) - radius <= 32.0 (DXIL literal bytes 20 08 82 60 18; 64.0 = 20 08 82 68 18), so
+  NPCs > 32 m ahead are never captured. Changing it needs the DXBC digest recomputed and the bytecode swapped (files or a
+  pipeline-creation hook).
+Most is 64 m; at 64 the capture texels go 6.25 -> 12.5 cm (coarser footprints, the player's too). Other passes share the
+dynamic capture (grass, water, particles). Vertical range: cvar 6D586F8 = 50. Snow cvars are hash-only (no names);
+the cvar table is the static initialisers 51ECB38..521B810 (value +0x38, default +0x3C, float vtable 5715BE8).

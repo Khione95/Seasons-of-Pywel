@@ -1,0 +1,2 @@
+1.0.3
+- Changed: less rain in autumn and spring - players found it raining almost all the time. Autumn's rain spells now come half as often (25% each roll instead of 50%) and last 2 to 4 game hours (were 3 to 6); spring's come half as often too (15% instead of 30%), 1.5 to 3.5 game hours (were 2 to 5). Summer and winter are unchanged; the game's own rain still falls as before.

@@ -65,9 +65,12 @@ struct SeasonWeather
 };
 
 static const SeasonWeather SEASON_WEATHER[SEASON_COUNT] = {
-    { 0.30f, 2.0f, 5.0f, 0.3f, 0.8f },     // spring: some rain
+    // Raining (from these spells, besides the game's own rain) about 6% of the
+    // time in spring, 3% in summer and 11% in autumn: chance 0.5 / 3-6 h in
+    // autumn and 0.3 / 2-5 h in spring rained "all the time" (players, 1.0.2).
+    { 0.15f, 1.5f, 3.5f, 0.3f, 0.7f },     // spring: some rain
     { 0.08f, 1.0f, 3.0f, 0.3f, 0.7f },     // summer: rain now and then
-    { 0.50f, 3.0f, 6.0f, 0.4f, 1.0f },     // autumn: rain often
+    { 0.25f, 2.0f, 4.0f, 0.3f, 0.9f },     // autumn: rain more often
     { 0.60f, 3.0f, 8.0f, 0.5f, 1.0f },     // winter: snow often
 };
 
