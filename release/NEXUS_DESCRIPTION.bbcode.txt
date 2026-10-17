@@ -23,17 +23,19 @@ The game has its own temperature system (the meter, the cold and heat effects, w
 • [b]Summer[/b]: 4 degrees hotter than the game's own.
 • [b]Spring[/b]: 6 degrees cooler.
 • [b]Autumn[/b]: 8 degrees cooler.
-• [b]Winter[/b]: 24 degrees colder. In the middle lands that means days around 0 to +1 degrees and nights well below freezing, around -15 degrees. The desert stays as warm as in summer. Deep snow makes it colder still (see below).
+• [b]Winter[/b]: 24 degrees colder. In the middle lands that means days around 0 to +1 degrees and nights well below freezing, around -15 degrees. Deep snow makes it colder still (see below).
 • [b]Cold, not deadly[/b]: no season makes a night colder than -30 degrees where the game's own nights are warmer, so chilly forts and hills don't freeze you (or their guards) to death. The far north's snow mountains keep the game's own cold.
+• [b]The desert[/b] keeps the game's own temperatures in every season.
 Days stay warmer than nights, as in the game, and fires still warm you up.
 
 [size=5][b]Weather[/b][/size]
 Every season has its own weather. Rain and snow come in [b]spells[/b] that the mod rolls on the game's clock:
 • [b]Winter[/b]: snow often (60% chance each roll), spells of 3 to 8 game hours, light to heavy.
-• [b]Autumn[/b]: rain more often (25%), spells of 2 to 4 game hours, up to heavy rain.
-• [b]Spring[/b]: some rain (15%), spells of 1.5 to 3.5 game hours, light to moderate.
-• [b]Summer[/b]: rain only now and then (8%), short spells of 1 to 3 game hours. The game's own rain is mostly kept away too, so summers are dry and hot.
+• [b]Autumn[/b]: rain more often (18%), spells of 1.5 to 3.5 game hours, up to heavy rain.
+• [b]Spring[/b]: some rain (10%), spells of 1 to 3 game hours, light to moderate.
+• [b]Summer[/b]: rain only now and then (6%), short spells of 1 to 2.5 game hours. The game's own rain is mostly kept away too, so summers are dry and hot.
 After a spell, or when a roll stays dry, the sky stays clear for 4 to 8 game hours before the next roll.
+[b]The desert[/b] keeps the game's own weather: the season's rain and snow fade out as you ride in and come back as you leave.
 
 • Spells come and go gradually, over about a quarter of a game hour.
 • Clouds gather with the rain and snow: the heavier the spell, the more overcast the sky.

@@ -1,5 +1,6 @@
 #include "weather.h"
 #include "archive.h"
+#include "climate.h"
 #include "log.h"
 #include "menu.h"
 
@@ -65,12 +66,13 @@ struct SeasonWeather
 };
 
 static const SeasonWeather SEASON_WEATHER[SEASON_COUNT] = {
-    // Raining (from these spells, besides the game's own rain) about 6% of the
-    // time in spring, 3% in summer and 11% in autumn: chance 0.5 / 3-6 h in
-    // autumn and 0.3 / 2-5 h in spring rained "all the time" (players, 1.0.2).
-    { 0.15f, 1.5f, 3.5f, 0.3f, 0.7f },     // spring: some rain
-    { 0.08f, 1.0f, 3.0f, 0.3f, 0.7f },     // summer: rain now and then
-    { 0.25f, 2.0f, 4.0f, 0.3f, 0.9f },     // autumn: rain more often
+    // Raining (from these spells, besides the game's own rain) about 4% of the
+    // time in spring, 2% in summer and 8% in autumn: chance 0.5 / 3-6 h in
+    // autumn and 0.3 / 2-5 h in spring rained "all the time" (players, 1.0.2),
+    // and 0.25 / 2-4 h and 0.15 / 1.5-3.5 h still too often (1.0.3).
+    { 0.10f, 1.0f, 3.0f, 0.3f, 0.7f },     // spring: some rain
+    { 0.06f, 1.0f, 2.5f, 0.3f, 0.7f },     // summer: rain now and then
+    { 0.18f, 1.5f, 3.5f, 0.3f, 0.9f },     // autumn: rain more often
     { 0.60f, 3.0f, 8.0f, 0.5f, 1.0f },     // winter: snow often
 };
 
@@ -213,7 +215,71 @@ static void HookQuery(uintptr_t actor, uint32_t* flags, uint8_t* indoors)
 
 static float Max(float a, float b) { return a > b ? a : b; }
 
+// In the desert (ClimateInDesert) the game's own weather: the season's goes
+// out (in DESERT_FADE real seconds) as the camera goes in, and back out.
+static const float DESERT_FADE = 3.0f;
+static float g_desertFade = 0;               // 1: all the game's own
+static ULONGLONG g_desertTick = 0;
+
+static void DesertFade()
+{
+    ULONGLONG now = GetTickCount64();
+    float dt = g_desertTick ? (now - g_desertTick) / 1000.0f : 0;
+    g_desertTick = now;
+
+    if (dt > 1.0f)
+        dt = 1.0f;
+
+    float target = ClimateInDesert() ? 1.0f : 0.0f, step = dt / DESERT_FADE;
+    g_desertFade = g_desertFade < target ? (g_desertFade + step > target ? target : g_desertFade + step)
+                                         : (g_desertFade - step < target ? target : g_desertFade - step);
+}
+
+static void Blend(float* v, float game, float f) { *v += (game - *v) * f; }
+
+static void SeasonWeather_(uintptr_t manager);
+
 static void Season_(uintptr_t manager)
+{
+    DesertFade();
+    float f = g_force == WEATHER_FORCE_NONE ? g_desertFade : 0.0f;
+
+    if (f <= 0.0f)
+    {
+        SeasonWeather_(manager);
+        return;
+    }
+
+    __try
+    {
+        uintptr_t layers = *(uintptr_t*)(manager + 0x60);
+        float* w = layers ? *(float**)(layers + 0x18) : NULL;
+        uint8_t* atmosphere = layers ? *(uint8_t**)(layers + 0x20) : NULL;
+
+        if (!w)
+            return;
+
+        float* cover = atmosphere ? (float*)(atmosphere + CLOUD_COVER) : NULL;
+        const uintptr_t at[] = { PRECIPITATION, CLOUDINESS, HUMIDITY, SNOW, RAIN };
+        float game[5], gameCover = cover ? *cover : 0;
+
+        for (int i = 0; i < 5; ++i)
+            game[i] = *(float*)((uint8_t*)w + at[i]);
+
+        SeasonWeather_(manager);
+
+        for (int i = 0; i < 5; ++i)
+            Blend((float*)((uint8_t*)w + at[i]), game[i], f);
+
+        if (cover)
+            Blend(cover, gameCover, f);
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+    }
+}
+
+static void SeasonWeather_(uintptr_t manager)
 {
     __try
     {

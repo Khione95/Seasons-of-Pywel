@@ -1,0 +1,3 @@
+1.0.4
+- Changed: less rain again. Autumn's rain spells now come at 18% each roll (were 25%) and last 1.5 to 3.5 game hours (were 2 to 4); spring's at 10% (were 15%), 1 to 3 game hours (were 1.5 to 3.5); summer's at 6% (were 8%), 1 to 2.5 game hours (were 1 to 3). Winter's snow is unchanged.
+- Changed: the desert is left alone. Its temperatures are the game's own in every season (it was 4 degrees hotter in summer and winter, 6 cooler in spring and 8 cooler in autumn), and the mod's rain and snow don't fall there: they fade out over a few seconds as you ride into the desert and come back as you leave. The game's own desert weather is untouched.

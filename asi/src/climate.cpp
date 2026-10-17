@@ -65,6 +65,7 @@ static char g_ini[MAX_PATH];
 // texture says so, about 60 in the snowy north): every season keeps the
 // land's own.
 static std::vector<uint8_t> g_wintry;              // 1: winter's texel (0: the desert, as in summer)
+static std::vector<uint8_t> g_desert;              // 1: the desert (the game's own temperatures every season)
 static std::vector<uint32_t> g_lineMap;            // winter's days at LINE_WINTER (the top byte only)
 static std::vector<uint8_t> g_least;               // winter's coldest day top (byte) for NIGHT_FLOOR
 static std::vector<uint32_t> g_deepMap;
@@ -108,6 +109,18 @@ static bool Camera(float* x, float* z)
 }
 
 static float Top(uint32_t texel);
+
+bool ClimateInDesert()
+{
+    float x, z;
+
+    if (g_desert.size() != (size_t)MAP_SIZE * MAP_SIZE || !Camera(&x, &z))
+        return false;
+
+    int col = (int)(x / 80.0f) + (int)MAP_SIZE / 2, row = (int)(z / 80.0f) + (int)MAP_SIZE / 2;
+
+    return row >= 0 && col >= 0 && row < (int)MAP_SIZE && col < (int)MAP_SIZE && g_desert[(size_t)row * MAP_SIZE + col];
+}
 
 // The coldest midday around the camera in a map, as the game's deep snow
 // test takes it (rva 3DC0C50: 3x3 texels of 80 m); wintry: that texel is
@@ -282,9 +295,9 @@ static bool Load(Season season, std::vector<uint32_t>* m)
 
 // Each season: the game's own (summer's climate texture) SHIFT degrees warmer
 // or colder. Winter takes the winter texture's other channels (the snow
-// mountains'); where the winter texture keeps summer's (the desert), it stays
-// as in summer - but not where summer's is the winter texture's snow already
-// (-40 degrees, patches in the snow mountains).
+// mountains'); where the winter texture keeps summer's (the desert), every
+// season keeps the game's own temperatures - but not where summer's is the
+// winter texture's snow already (-40 degrees, patches in the snow mountains).
 static void Build()
 {
     std::vector<uint32_t> game, winter;
@@ -304,6 +317,15 @@ static void Build()
     std::vector<uint8_t> cold = game.size() == (size_t)MAP_SIZE * MAP_SIZE ? GameCold(game) : std::vector<uint8_t>(game.size(), 0);
     g_least.assign(game.size(), 0);
     g_wintry.assign(game.size(), 0);
+    g_desert.assign(game.size(), 0);
+
+    if (haveWinter && winter.size() == game.size())
+        for (size_t i = 0; i < game.size(); ++i)
+            if (winter[i] == game[i] && Top(game[i]) > -40.0f)
+            {
+                g_desert[i] = 1;
+                ++kept;
+            }
     g_lineMap.assign(game.size(), 0);
 
     for (int s = 0; s < SEASON_COUNT; ++s)
@@ -314,18 +336,11 @@ static void Build()
         for (size_t i = 0; i < game.size(); ++i)
         {
             uint32_t rest = game[i] & 0x00FFFFFF;
-            float shift = SHIFT[s];
-            bool warm = false;
+            float shift = g_desert[i] ? 0.0f : SHIFT[s];
 
             if (s == WINTER && haveWinter)
             {
-                if (winter[i] == game[i] && Top(game[i]) > -40.0f)
-                {
-                    shift = SHIFT[SUMMER];
-                    warm = true;
-                    ++kept;
-                }
-                else
+                if (!g_desert[i])
                 {
                     // The winter texture's G and A; R (the wind) stays the
                     // land's own. Where the game is that cold (GameCold),
@@ -371,7 +386,7 @@ static void Build()
         }
     }
 
-    Log("climate: spring %+.0f, summer %+.0f, autumn %+.0f, winter %+.0f degrees against the game's (%zu texels warm in winter: the desert)",
+    Log("climate: spring %+.0f, summer %+.0f, autumn %+.0f, winter %+.0f degrees against the game's (the desert, %zu texels, keeps the game's own)",
         SHIFT[SPRING], SHIFT[SUMMER], SHIFT[AUTUMN], SHIFT[WINTER], kept);
     Log("climate: nights no colder than %.0f: %zu texels held there in spring, %zu in autumn, %zu in winter; %zu keep the game's own cold",
         NIGHT_FLOOR, floored[SPRING], floored[AUTUMN], floored[WINTER], own);
