@@ -2,7 +2,7 @@
 - Updated for the game update of 30 October 2026 (the DLC). The mod's places in the game moved, the game's file index changed its layout, and the weather settings the mod writes moved.
 - Changed: the season data is made again from the game's new climate map (the update reworked it: the wind everywhere, a new channel, and colder snow mountains in the west). The seasons now start from the game's own values everywhere. Distant palms (11 images the update changed) follow the game's new ones in every season; two cattail images the game no longer has are gone. Plants the update brought (a weed grass, cattail leaves, persimmon, jujube, lespedeza, cabbage, welsh onion, badland weeds: 24 images) change with the seasons too.
 - Changed: the game's group list (meta/0.papgt) is no longer touched. The update gave it a new layout with a check value the mod cannot remake; the mod now makes the game's own index check accept the season's entries instead.
-- Updated for the game's patch later the same day: the day, the weather and deep snow work on it (on the first 1.0.5 test they had turned themselves off, and the menu showed the wrong day).
-- New: winter has dry brown leaves. Before, trees kept their summer green under the snow; now leaves, bushes and grasses (and their distant images) turn a dull, dead brown in winter. Evergreens, palms and desert plants stay as they are. The package is larger for it.
+- Updated for the game's patch later the same day (the day, the weather and deep snow work on it).
+- New: winter has dry brown leaves. Before, trees kept their summer green under the snow; now leaves, bushes and grasses (and their distant images) turn a dry, dead brown in winter. Evergreens, palms and desert plants stay as they are. The package is larger for it.
 - New: the control menu names the game's new storm weather ("Stormy").
 - The season data changed: install the whole package (the plugin alone is not enough this time).
