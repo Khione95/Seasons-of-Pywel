@@ -1,4 +1,4 @@
-Seasons of Pywel 1.0.4 for Crimson Desert
+Seasons of Pywel 1.0.5 for Crimson Desert
 by Khione
 
 Four seasons that follow the in-game day, changing live while you play.
@@ -10,8 +10,8 @@ SEASONS
 - Spring: fresh green leaves and grass.
 - Summer: the game's own look, a few degrees hotter.
 - Autumn: golden and orange trees, grass and terrain, near and far.
-- Winter: snow on the ground, the trees and objects, cold that the
-  temperature meter shows, and snowfall.
+- Winter: snow on the ground, the trees and objects, dry brown leaves,
+  cold that the temperature meter shows, and snowfall.
 - No season makes a night colder than -30 degrees where the game's own
   nights are warmer: cold, not deadly. The snow mountains keep the
   game's own cold.

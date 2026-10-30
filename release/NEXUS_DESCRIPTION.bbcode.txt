@@ -16,7 +16,7 @@ The season follows the day shown next to the minimap. When a new season starts, 
 • [b]Spring[/b]: fresh, bright green leaves and grass.
 • [b]Summer[/b]: the game's own look.
 • [b]Autumn[/b]: golden, orange and brown trees and bushes, near and far, with matching grass and terrain colours.
-• [b]Winter[/b]: snow on the ground, on trees, rocks and objects, frost, and snowfall. The Crimson Desert's ground stays bare and warm.
+• [b]Winter[/b]: snow on the ground, on trees, rocks and objects, dry brown leaves, frost, and snowfall. The Crimson Desert's ground stays bare and warm.
 
 [size=5][b]Temperature[/b][/size]
 The game has its own temperature system (the meter, the cold and heat effects, warming up by a fire). Each season moves it:

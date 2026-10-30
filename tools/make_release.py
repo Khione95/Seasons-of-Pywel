@@ -9,7 +9,8 @@ DMM: enabling the plugin copies the .asi and the folder beside it (its data)
 into the game's bin64. By hand: Seasons.asi and the Seasons folder go into bin64.
 
 Build the plugin (Release x64) and the season data first.
-Usage: python make_release.py <version>"""
+Usage: python make_release.py <version> [--full-only]
+       --full-only: no "plugin only" zip (the season data changed too)"""
 import os
 import sys
 import zipfile
@@ -38,6 +39,9 @@ def main():
             z.write(path, name)
             print(name, os.path.getsize(path), flush=True)
     print('release:', archive, os.path.getsize(archive))
+
+    if '--full-only' in sys.argv:
+        return
 
     # An update for those who have the data already: the plugin and the readme.
     update = os.path.join(OUT, f'Seasons of Pywel {version} - plugin only.zip')

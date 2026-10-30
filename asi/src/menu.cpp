@@ -19,8 +19,9 @@
 // ---------------------------------------------------------------------------
 
 // The day the HUD shows: a u32 in the game's data (it went 76 -> 77 with the
-// HUD; research/notes.md). Unconfirmed across game versions.
-static const uintptr_t DAY_RVA = 0x6A6D218;
+// HUD; research/notes.md). Rva 6A6D218 before the 2026-10-30 update, 6E9A998 on its first build (found
+// again by the code that uses it).
+static const uintptr_t DAY_RVA = 0x6E9C998;
 
 static char g_ini[MAX_PATH];
 static volatile LONG g_auto = 1;         // the season by the day (or fixed)

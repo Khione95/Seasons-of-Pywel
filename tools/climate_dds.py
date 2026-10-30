@@ -60,4 +60,5 @@ def main():
     print('wrote', out, len(data), 'bytes,', n, 'mips')
 
 
-main()
+if __name__ == '__main__':
+    main()

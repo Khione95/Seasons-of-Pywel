@@ -16,39 +16,46 @@
 #include "MinHook.h"
 
 // ---------------------------------------------------------------------------
-// The HUD's weather (the icon next to the clock) comes from rva 17FA700
+// The HUD's weather (the icon next to the clock) comes from rva 1932A10
 // (actor, u32* flags, bool*): a bit per weather - 0 rainy, 1 snowy, 2 windy,
-// 3 fog, 4 cloudy, 5 sunny (the names at rva 5912E88); the HUD shows the
-// lowest bit set. The hook keeps the flags of every call.
+// 3 fog, 4 cloudy, 5 sunny, 6 storm (new in the 2026-10-30 update; the names
+// at rva 5CB8F18); the HUD shows the lowest bit set. The hook keeps the flags
+// of every call.
 //
 // The weather itself: each tick the climate manager composes its weather
-// layers (the weather sequences) into one WeatherConstant (rva 3DC0340, from
-// its update rva 3DC4730, into [[manager+0x60]+0x18]): +0x12C precipitation, +0x130 cloudiness,
-// +0x134 humidity, +0x168 snow, +0x16C rain. The rain and snow effects (rva
-// 3DC3A10 / 3DC3AC0) and the HUD read it. After the game composes it, the
-// season's weather goes in: spells of snow (winter) or rain, as often as the
-// season has them; the game's own rain turns to snow in winter and is rarer
-// in summer.
+// layers (the weather sequences) into one WeatherConstant (rva 40B1480, from
+// its update rva 40B71E0, into [[manager+0x60]+0x20]): +0x12C precipitation, +0x130 cloudiness,
+// +0x134 humidity, +0x16C snow, +0x170 rain (the fields' setters name them:
+// _snow and _rain moved 4 bytes in the update, _oceanWindDegree came before
+// them). The rain and snow effects and the HUD read it. After the game
+// composes it, the season's weather goes in: spells of snow (winter) or
+// rain, as often as the season has them; the game's own rain turns to snow
+// in winter and is rarer in summer.
 // ---------------------------------------------------------------------------
 
-const wchar_t* const WEATHER_NAMES[WEATHER_UNKNOWN + 1] = { L"Rainy", L"Snowy", L"Windy", L"Fog", L"Cloudy", L"Sunny", L"Not known yet" };
+const wchar_t* const WEATHER_NAMES[WEATHER_UNKNOWN + 1] = { L"Rainy", L"Snowy", L"Windy", L"Fog", L"Cloudy", L"Sunny", L"Stormy",
+                                                            L"Not known yet" };
 
-static const uintptr_t WEATHER_QUERY = 0x17FA700;
+static const uintptr_t WEATHER_QUERY = 0x1933C70;
 static const unsigned char QUERY_START[] = { 0x48, 0x89, 0x5C, 0x24, 0x10, 0x48, 0x89, 0x6C, 0x24, 0x18, 0x48, 0x89, 0x74, 0x24, 0x20, 0x57,
                                              0x48, 0x83, 0xEC, 0x60 };
 
-// The compose starts with a VEX instruction the hook library cannot move: the
-// climate manager's update that calls it is hooked instead (rva 3DC4730:
-// compose, then the effects' bookkeeping); the season's weather goes in after.
-static const uintptr_t WEATHER_UPDATE = 0x3DC4730;
-static const unsigned char UPDATE_START[] = { 0x48, 0x89, 0x5C, 0x24, 0x10, 0x55, 0x56, 0x57, 0x48, 0x83, 0xEC, 0x50, 0xC5, 0xF8, 0x29, 0x74,
-                                              0x24, 0x40 };
+// The compose was hooked through the climate manager's update that calls it
+// (its start was a VEX instruction the hook library cannot move): rva
+// 40B71E0, compose, then the effects' bookkeeping; the season's weather goes
+// in after.
+static const uintptr_t WEATHER_UPDATE = 0x40B71E0;
+static const unsigned char UPDATE_START[] = { 0x48, 0x8B, 0xC4, 0x53, 0x55, 0x56, 0x57, 0x41, 0x54, 0x41, 0x56, 0x41, 0x57, 0x48, 0x81, 0xEC,
+                                              0x90, 0x00, 0x00, 0x00 };
 
-static const uintptr_t PRECIPITATION = 0x12C, CLOUDINESS = 0x130, HUMIDITY = 0x134, SNOW = 0x168, RAIN = 0x16C;
+// [manager+0x60]: the composed layers (the weather at +0x18 before the update).
+static const uintptr_t LAYERS = 0x60, LAYER_WEATHER = 0x20, LAYER_ATMOSPHERE = 0x28;
+static const uintptr_t PRECIPITATION = 0x12C, CLOUDINESS = 0x130, HUMIDITY = 0x134, SNOW = 0x16C, RAIN = 0x170;
 
-// The composed atmosphere ([[manager+0x60]+0x20]): +0xA8 the cloud cover the
-// sky shows (the game's about 0.45; 1 is overcast - found by trying).
-static const uintptr_t CLOUD_COVER = 0xA8;
+// The composed atmosphere ([[manager+0x60]+0x28]): +0xAC the cloud cover the
+// sky shows (_cloudBaseDensity; the game's about 0.45, 1 is overcast - found
+// by trying; +0xA8 before the update, _heightFogNoiseRange came before it).
+static const uintptr_t CLOUD_COVER = 0xAC;
 static const float CLEAR_COVER = 0.25f;
 
 typedef void (*QueryFn)(uintptr_t, uint32_t*, uint8_t*);
@@ -252,9 +259,9 @@ static void Season_(uintptr_t manager)
 
     __try
     {
-        uintptr_t layers = *(uintptr_t*)(manager + 0x60);
-        float* w = layers ? *(float**)(layers + 0x18) : NULL;
-        uint8_t* atmosphere = layers ? *(uint8_t**)(layers + 0x20) : NULL;
+        uintptr_t layers = *(uintptr_t*)(manager + LAYERS);
+        float* w = layers ? *(float**)(layers + LAYER_WEATHER) : NULL;
+        uint8_t* atmosphere = layers ? *(uint8_t**)(layers + LAYER_ATMOSPHERE) : NULL;
 
         if (!w)
             return;
@@ -283,13 +290,13 @@ static void SeasonWeather_(uintptr_t manager)
 {
     __try
     {
-        uintptr_t layers = *(uintptr_t*)(manager + 0x60);
+        uintptr_t layers = *(uintptr_t*)(manager + LAYERS);
 
         if (!layers)
             return;
 
-        float* w = *(float**)(layers + 0x18);
-        uint8_t* atmosphere = *(uint8_t**)(layers + 0x20);
+        float* w = *(float**)(layers + LAYER_WEATHER);
+        uint8_t* atmosphere = *(uint8_t**)(layers + LAYER_ATMOSPHERE);
 
         if (!w)
             return;
@@ -348,15 +355,16 @@ static void SeasonWeather_(uintptr_t manager)
     }
 }
 
-// The game's hour: the climate manager's clock ([manager+0xE8], virtual
-// +0x100), as the climate code asks it (rva 3DC1070).
+// The game's hour: the climate manager's clock ([manager+0x100] - +0xE8
+// before the update -, virtual +0x100), as the climate code asks it (rva
+// 40B2310).
 typedef float (*HourFn)(uintptr_t);
 
 static void ReadHour(uintptr_t manager)
 {
     __try
     {
-        uintptr_t clock = *(uintptr_t*)(manager + 0xE8);
+        uintptr_t clock = *(uintptr_t*)(manager + 0x100);
 
         if (clock)
         {

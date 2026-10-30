@@ -1,4 +1,4 @@
-"""Season colours (autumn, or spring with SEASON=spring) for block-compressed (DXT1/DXT5) textures: every block's two
+"""Season colours (autumn, spring with SEASON=spring, winter with SEASON=winter) for block-compressed (DXT1/DXT5) textures: every block's two
 colour endpoints (RGB565) are moved from green towards yellow / orange / rust,
 keeping their brightness; the block's indices stay, so the texture's detail and
 format stay the same. All mips.
@@ -6,7 +6,8 @@ Usage: python autumn_tint.py <in.dds> <out.dds> [strength 0-1]"""
 import os, struct, sys
 import numpy as np
 
-# Which season the tools make: autumn (default) or spring (SEASON=spring).
+# Which season the tools make: autumn (default), spring (SEASON=spring) or
+# winter (SEASON=winter).
 SEASON = os.environ.get('SEASON', 'autumn')
 
 # Target hues (degrees) and boosts, tuned in game.
@@ -15,6 +16,11 @@ SATURATE, BRIGHTEN = 0.8, 0.18
 # Spring: greens pulled towards fresh, light yellow-greens.
 SPRING_LOW, SPRING_HIGH, SPRING_PULL = 75.0, 100.0, 0.9
 SPRING_SATURATE, SPRING_BRIGHTEN = 0.3, 0.3
+# Winter: dry, dead leaves - every coloured part (green, and the reds and
+# yellows of autumn leaves, berries and flowers) brown; the greens lighter.
+# A dull brown read as grey-olive in game: winter's light (measured on the
+# user's screenshots: R x1.1, G x1.35, B x1.5 against summer) takes it.
+WINTER_HUE, WINTER_SATURATION, WINTER_MOST_SATURATION, WINTER_BRIGHTEN = 25.0, 1.4, 0.75, 1.3
 
 
 def rgb565_to_rgb(c):
@@ -41,7 +47,12 @@ def autumn(rgb, strength):
     # deep greens orange/red. More saturated and a little brighter, so it shows
     # through the plants' own textures.
     t = np.clip((h - 55) / 120, 0, 1)
-    if SEASON == 'spring':
+    if SEASON == 'winter':
+        dry = s > 0.08
+        nh = np.where(dry, h + (WINTER_HUE - h) * strength, h)
+        ns = np.where(dry, s + (np.minimum(s * WINTER_SATURATION, WINTER_MOST_SATURATION) - s) * strength, s)
+        nv = np.where(dry & green, np.clip(v * (1 + (WINTER_BRIGHTEN - 1) * strength), 0, 255), v)
+    elif SEASON == 'spring':
         nh = np.where(green, h + (SPRING_LOW + (SPRING_HIGH - SPRING_LOW) * t - h) * SPRING_PULL * strength, h)
         ns = np.where(green, np.clip(s * (1 + SPRING_SATURATE * strength), 0, 1), s)
         nv = np.where(green, np.clip(v * (1 + SPRING_BRIGHTEN * strength), 0, 255), v)
@@ -67,7 +78,12 @@ def tint(data, strength=1.0):
     n0 = rgb_to_565(autumn(rgb565_to_rgb(c0.astype(np.int64)), strength))
     n1 = rgb_to_565(autumn(rgb565_to_rgb(c1.astype(np.int64)), strength))
     if fourcc == b'DXT1':
-        # keep each block's mode (c0 > c1: 4 colours); swap endpoints and indices when it would flip
+        # keep each block's mode (c0 > c1: 4 colours); swap endpoints and indices when it would flip.
+        # A 4-colour block whose two colours became one would turn 3-colour (its
+        # 4th colour transparent black): one end a step apart keeps it 4-colour.
+        same = (c0 > c1) & (n0 == n1)
+        n0 = np.where(same & (n0 < 0xFFFF), n0 + 1, n0).astype(np.uint16)
+        n1 = np.where(same & (n0 == n1), n1 - 1, n1).astype(np.uint16)
         flip = ((c0 > c1) != (n0 > n1)) & (n0 != n1)
         idx = col[:, 2].astype(np.uint32) | (col[:, 3].astype(np.uint32) << 16)
         four = c0 > c1

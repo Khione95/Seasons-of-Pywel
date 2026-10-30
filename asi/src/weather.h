@@ -1,7 +1,7 @@
 #pragma once
 
 // The weather where the player is, as the HUD shows it.
-enum Weather { RAINY, SNOWY, WINDY, FOG, CLOUDY, SUNNY, WEATHER_UNKNOWN };
+enum Weather { RAINY, SNOWY, WINDY, FOG, CLOUDY, SUNNY, STORMY, WEATHER_UNKNOWN };
 
 extern const wchar_t* const WEATHER_NAMES[WEATHER_UNKNOWN + 1];
 

@@ -19,6 +19,11 @@ import lz4.block
 
 GAME = r'E:\SteamLibrary\steamapps\common\Crimson Desert'
 INDEX = os.path.join(os.path.expanduser('~'), 'Desktop', r'Crimson Browser Sharp\cache\archive_index.json')
+# After a game update (the 2026-10-30 one changed the index layout, which
+# Crimson Browser Sharp no longer reads): tools/game_index.py writes one here.
+OWN_INDEX = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'cache', 'archive_index.json')
+if os.path.exists(OWN_INDEX):
+    INDEX = OWN_INDEX
 
 ENTRY = re.compile(rb'\{"ArchiveId":"(\d+)","EntryIndex":\d+,"RelativePath":"([^"]+)"[^{}]*?"PackedSize":(\d+),'
                    rb'"UnpackedSize":(\d+),"Offset":(\d+),"PazIndex":(\d+),"Compression":"(\w+)","Encryption":"(\w+)"')

@@ -13,11 +13,11 @@
 #include <vector>
 
 // ---------------------------------------------------------------------------
-// The climate map (PAClimateTexture, vtable rva 5AD1A10): +0x18 texels, +0x20
+// The climate map (PAClimateTexture, vtable rva 5E897C0): +0x18 texels, +0x20
 // their count, +0x30/+0x34 metres per texel (80), +0x38/+0x3C width and height
 // (512). It is texture/climate_texture_1.dds upside down, a u32 per texel with
 // the bytes A,R,G,B. The game makes two (the weather manager's, the climate
-// manager's at +0xD8) and samples them as it runs (rva 269F080): the top byte
+// manager's at +0xD8) and samples them as it runs (rva 28C4EB0): the top byte
 // is the day's top temperature, -50..50 degrees for 0..255, the night is up
 // to 25 degrees colder (G). The temperature meter and deep snow follow the
 // climate manager's. Each map gets the season's texels, checked every 2
@@ -26,18 +26,21 @@
 // Snow (settings in the game's data, read live):
 //   SNOW_START / SNOW_FULL (-5 / -20): the game's, left as they are
 //   DEEP_SNOW / DEEP_SNOW_FULL (-20 / -30): deep snow near the camera when the
-//                    midday there is below it (rva 3DC0C50 -> climate manager
-//                    +0x120), and on the graphics card where the climate
-//                    texture is (with the walking-in-deep-snow effect)
+//                    midday there is below it (rva 40B1EF0), and on the
+//                    graphics card where the climate texture is (with the
+//                    walking-in-deep-snow effect)
 // Each season has its own temperatures (SHIFT). Deep snow builds up while it
 // snows (DEEP_SNOW rising from DEEP_SNOW_LEAST to DEEP_SNOW_MOST) and melts
 // after a while without snow; the deeper the snow, the colder winter gets
 // (COLDER_AT_FULL_DEPTH), and the line goes down as much.
 // ---------------------------------------------------------------------------
 
-static const uintptr_t CLIMATE_VTABLE = 0x5AD1A10;
+// The game build these are for (the 2026-10-30 update's patch of 11:19): the snow settings
+// and the climate maps are written, so another build is left alone.
+static const DWORD KNOWN_TIMESTAMP = 0x6AE387F2, KNOWN_IMAGE_SIZE = 0x145B9000;
+static const uintptr_t CLIMATE_VTABLE = 0x5E8B7C0;
 static const uint32_t MAP_SIZE = 512;
-static const uintptr_t SNOW_START = 0x6D63848, SNOW_FULL = 0x6D63898, DEEP_SNOW = 0x6D638E8, DEEP_SNOW_FULL = 0x6D63938;
+static const uintptr_t SNOW_START = 0x71A8D48, SNOW_FULL = 0x71A8D98, DEEP_SNOW = 0x71A8DE8, DEEP_SNOW_FULL = 0x71A8E38;
 static const float DEEP_SNOW_NONE = -45.0f;     // below winter's climate texture (-40): no deep snow
 
 // Each season's days and nights against the game's own (summer is hot).
@@ -83,23 +86,24 @@ static bool g_snowRead = false;
 
 static float* Global(uintptr_t rva) { return (float*)((uintptr_t)GetModuleHandleW(NULL) + rva); }
 
-// The climate manager ([146D69198] +0x40 -> +0xF68, rva 73E4DB) and the
-// camera it keeps (+0x4001C8: x, y, z).
-static const uintptr_t CLIMATE_ROOT = 0x6D69198;
+// The climate manager ([1471AEA58] +0x50 -> +0xF70) and the
+// camera it keeps (+0x1001F8: x, y, z). Before the 2026-10-30 update:
+// [146D69198] +0x40 -> +0xF68, the camera at +0x4001C8.
+static const uintptr_t CLIMATE_ROOT = 0x71AEA58;
 
 static bool Camera(float* x, float* z)
 {
     __try
     {
         uintptr_t root = *(uintptr_t*)((uintptr_t)GetModuleHandleW(NULL) + CLIMATE_ROOT);
-        uintptr_t a = root ? *(uintptr_t*)(root + 0x40) : 0;
-        uintptr_t mgr = a ? *(uintptr_t*)(a + 0xF68) : 0;
+        uintptr_t a = root ? *(uintptr_t*)(root + 0x50) : 0;
+        uintptr_t mgr = a ? *(uintptr_t*)(a + 0xF70) : 0;
 
         if (!mgr)
             return false;
 
-        *x = *(float*)(mgr + 0x4001C8);
-        *z = *(float*)(mgr + 0x4001D0);
+        *x = *(float*)(mgr + 0x1001F8);
+        *z = *(float*)(mgr + 0x100200);
         return true;
     }
     __except (EXCEPTION_EXECUTE_HANDLER)
@@ -123,7 +127,7 @@ bool ClimateInDesert()
 }
 
 // The coldest midday around the camera in a map, as the game's deep snow
-// test takes it (rva 3DC0C50: 3x3 texels of 80 m); wintry: that texel is
+// test takes it (rva 40B1EF0: 3x3 texels of 80 m); wintry: that texel is
 // winter's (g_wintry).
 static bool ColdestAround(const std::vector<uint32_t>& m, float* coldest, bool* wintry)
 {
@@ -227,7 +231,7 @@ static uint32_t TopByte(float degrees)
     return (uint32_t)(b < 0 ? 0 : b > 255 ? 255 : b);
 }
 
-// Day to night in a texel (G; rva 3DC0FE0): the night is this much colder.
+// Day to night in a texel (G; rva 40B2280): the night is this much colder.
 static float Range(uint32_t texel)
 {
     return (1.0f - ((texel >> 16) & 0xFF) / 255.0f) * 18.0f + 7.0f;
@@ -247,7 +251,7 @@ static uint32_t Least(uint32_t rest)
     return TopByteUp(NIGHT_FLOOR + Range(rest));
 }
 
-// The game blends the 2x2 texels around a spot (rva 269F080): where its own
+// The game blends the 2x2 texels around a spot (rva 28C4EB0): where its own
 // nights are colder than NIGHT_FLOOR, that texel and the ones next to it
 // keep the game's own temperatures, so the blend there is the game's own.
 static std::vector<uint8_t> GameCold(const std::vector<uint32_t>& game)
@@ -591,6 +595,17 @@ void ClimateStart(Season start, const char* ini)
     g_deepOn = _stricmp(deep, "off") != 0 && _stricmp(deep, "0") != 0 && _stricmp(deep, "no") != 0 && _stricmp(deep, "false") != 0;
     Log("climate: deep snow %s", g_deepOn ? "default" : "off");
     g_wake = CreateEventW(NULL, FALSE, FALSE, NULL);
+
+    const uint8_t* base = (const uint8_t*)GetModuleHandleW(NULL);
+    const IMAGE_NT_HEADERS* nt = (const IMAGE_NT_HEADERS*)(base + ((const IMAGE_DOS_HEADER*)base)->e_lfanew);
+
+    if (nt->FileHeader.TimeDateStamp != KNOWN_TIMESTAMP || nt->OptionalHeader.SizeOfImage != KNOWN_IMAGE_SIZE)
+    {
+        Log("climate: another game build (%08lX, %08lX) - the season's temperatures and deep snow are off",
+            nt->FileHeader.TimeDateStamp, nt->OptionalHeader.SizeOfImage);
+        return;
+    }
+
     CloseHandle(CreateThread(NULL, 0, ClimateThread, NULL, 0, NULL));
 }
 

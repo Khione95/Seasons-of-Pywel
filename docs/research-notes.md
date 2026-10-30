@@ -239,3 +239,54 @@ gates, all 32 m:
 Most is 64 m; at 64 the capture texels go 6.25 -> 12.5 cm (coarser footprints, the player's too). Other passes share the
 dynamic capture (grass, water, particles). Vertical range: cvar 6D586F8 = 50. Snow cvars are hash-only (no names);
 the cvar table is the static initialisers 51ECB38..521B810 (value +0x38, default +0x3C, float vtable 5715BE8).
+
+## Port to the game update of 2026-10-30 (the DLC; build 6AE2C6A6 / 1435A000)
+How each address was found again (old exe: Crimson Desert Findings\inputs\CrimsonDesert.exe):
+- Functions by their own code (wildcarded rip/branch operands): HUD weather query 17FA700 -> 1932A10.
+  The weather update 3DC4730 -> 40B5820 through its callee 3DC0FE0 -> 40B2280 (the caller's .pdata entry);
+  compose 40B1480, deep-snow test 40B1EF0, sampler 269F080 -> 28C4EB0 (code identical).
+- Globals by the code around their rip-relative uses (movss/mov/lea): climate root 6D69198 -> 71ACBC8,
+  day 6A6D218 -> 6E9C998 (6E9A998 in the first 1.0.5 test was wrong: a table, read 12), snow 6D63848/898/8E8/938 -> 71A6EB8/F08/F58/FA8 (same 7/4/3/2 uses each),
+  PAClimateTexture vtable 5AD1A10 -> 5E897C0 (RTTI name checked).
+- Structures: root +0x40 -> +0x50, then +0xF68 -> +0xF70; manager camera +0x4001C8 -> +0x1001F8 (the
+  neighbouring fields map one to one by use counts); clock [mgr+0xE8] -> [mgr+0x100] (vcall +0x100 same);
+  layers [mgr+0x60]: weather +0x18 -> +0x20, atmosphere +0x20 -> +0x28. Field offsets from the reflection
+  setters ("lea rsi,[rcx+X]" next to the field name string; the layer pointer is object+0x28):
+  _snow 0x168 -> 0x16C, _rain 0x16C -> 0x170 (_oceanWindDegree new), _cloudBaseDensity (cloud cover)
+  0xA8 -> 0xAC (_heightFogNoiseRange new); precipitation/cloudiness/humidity unchanged.
+- HUD weather names gained "Storm" (bit 6).
+- 0.pamt: names are pieces (varint distance back to the parent, 0 none; u8 length; text), file rows end
+  u16 paz, u8 flags, u8 extension index; the extensions follow the rows (u32 size, zero-ended, first empty).
+- meta/0.papgt: new layout (u32 with the group count in byte 2, 12-byte entries from +4: flags, name, pamt
+  hash; names; then 64 bytes nothing simple reproduces: not sha512/sha3/blake2b/hmac with 0.papk, not
+  Ed25519 with 0.papk). "papgt hash" errors are in the protected .code section. So the plugin no longer
+  changes it: the game's index check (1552400) hashes the file from byte 12 with 1540810
+  (hashlittle 0xC5EDE, 2283 callers); the plugin hooks it and answers the on-disk hash for its indexes.
+- The climate texture changed: R (wind) everywhere, A now varies, B colder in the western snow mountains
+  (25 -> 0, x 37-99 y 249-338). Climate copies made again with tools/climate_dds.py from the new one
+  (research/climate/climate_texture_1.dds; the old one in before_2026-10-30/).
+- 11 palm impostors changed (regenerated with autumn_plants' tint, which reproduced the shipped ones
+  exactly from the old textures); fruit_cattail_01_* are gone from the game.
+
+### 1.0.5 test fixes (2026-10-30, after the first launch)
+- The update added a DLC folder, `dlc/dlc_01/0000..0004`, with its own `0.pamt`/`0.paz`. In it, 0000 holds about 6,900 object/housing files; the other four list no files. The plugin's index matching used to fall back to "group folder + file name". That fallback matched `dlc/dlc_01/0000/0.pamt` to the game's 0000 index, and the plugin wrote one entry into it: the archive size of the paz table. The game then said its installation might have a problem. Fix: only full paths count now (`FullName`: GetFullPathNameW, lower case), and archives must lie directly in the game folder.
+- With autumn_plants' rules run on the new game, 24 tree textures the season data lacked were picked: weed_grass_06/06a/06b, cattail leaves (the game removed the cattail fruit), persimmon fruit, jujube, lespedeza, cabbage, welsh onion, and badland weed impostors. All are in 0001 paz 2/3. Their autumn and spring versions were made at strength 1. The season data now has 8744 lines, and 0001 lists 2034 paths.
+
+## The patch of 2026-10-30 11:19 (build 6AE387F2 / 145B9000)
+A patch hours after the DLC build changed the exe and 1,841 files (cutscene paths, shader cache, text, some
+action charts and level data; no texture Seasons ships). On it 1.0.5's checks turned the index, climate and
+weather parts off; the day read a static table (12). Ported from the old exe again (port2 / prologue bytes),
+checked live (snow -5/-20/-20/-30, the camera, the weather layer): day 6E9C998, snow 71A8D48/D98/DE8/E38,
+climate root 71AEA58, PAClimateTexture vtable 5E8B7C0, HUD weather query 1933C70, weather update 40B71E0
+(calls the ported 40B3C40), index hash 1541940. Structure offsets unchanged.
+
+## Winter leaves (2026-10-30, 1.0.5)
+Winter kept the summer leaf textures (snow only on their tops; the user: "some leaves are green"). The user
+chose dry brown over frosted or bare (research/winter_leaves_preview.png). SEASON=winter in autumn_tint.py:
+every coloured endpoint (s > 0.08, any hue: also red maples, berries, flowers) to hue 28, saturation x0.55
+(at most 0.45), value x0.8; autumn_plants.py's set (2012 tree textures + impostors; ground, tiles left to the
+snow). The white poplar's colour texture is grey-red, its green is the subsurface texture (pure green): tinted
+too. Fixed in the tint: a DXT1 4-colour block whose endpoints became equal turned 3-colour (black specks, seen in
+autumn's poplar subsurface); one endpoint is nudged a step. Autumn's shipped files were not remade.
+build_season_data.py packed the game's summer only without a winter version (winter was the climate texture):
+now only without a summer of the season set's own.

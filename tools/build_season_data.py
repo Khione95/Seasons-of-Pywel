@@ -140,9 +140,10 @@ def main():
         seasons = sorted(files)
         ds = [open(files[s], 'rb').read() for s in seasons]
         # Summer: the game's own texture, packed with the others (unless the
-        # seasons bring their own summer, as for the climate texture).
+        # seasons bring their own summer, as for the climate texture; winter's
+        # leaves have none of their own).
         e = entries.get((group, path))
-        if e and e['compression'] in ('Partial', 'None') and e['encryption'] == 'None' and 'summer' not in files and 'winter' not in files:
+        if e and e['compression'] in ('Partial', 'None') and e['encryption'] == 'None' and 'summer' not in files:
             summer = textures.unpack(e) if e['compression'] == 'Partial' else g.read(e)
             if mip_sizes(summer) == mip_sizes(ds[0]):
                 seasons.append('summer')

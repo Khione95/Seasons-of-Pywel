@@ -20,12 +20,17 @@ const char* const SEASON_NAMES[SEASON_COUNT] = { "spring", "summer", "autumn", "
 // ---------------------------------------------------------------------------
 // The files
 //
-// <group>/0.pamt: u32, u32 number of .paz files, u32, 12 bytes per .paz; then
-// the folder name block, the file name block (u32 size + nodes: u32 parent,
-// u8 length, characters - a name is its chain of nodes), the folders (u32
-// count; hash, name, first file, file count) and the files (u32 count; name,
-// offset, packed size, size, u16 .paz, u16 flags). The game keeps the file as
-// it reads it and looks files up in it.
+// <group>/0.pamt: u32 hashlittle(file from byte 12, 0xC5EDE), u32 number of
+// .paz files, u32, 12 bytes per .paz (number, checksum, size); then the
+// folder name block, the file name block (u32 size + pieces: a varint
+// distance back to the parent piece - 0: none -, u8 length, characters - a
+// name is its chain of pieces), the folders (u32 count; hash, name, first
+// file, file count), the files (u32 count; name, offset, packed size, size,
+// u16 .paz, u8 flags, u8 extension) and the extensions (u32 size, zero-ended,
+// the first one empty: names have no extension of their own). The game keeps
+// the file as it reads it and looks files up in it. (The layout of the
+// 2026-10-30 update: before it, a piece's parent was a u32 offset and the
+// files had a u16 flags and their extension in the name.)
 //
 // meta/0.pathc: u32 x2, u32 header size, u32 header count, u32 file count,
 // u32 x2; the DDS headers; the files' keys (hashlittle("/<path>", 0xC5EDE),
@@ -37,6 +42,12 @@ const char* const SEASON_NAMES[SEASON_COUNT] = { "spring", "summer", "autumn", "
 // hold for each season. Whatever way the game then reads them, the bytes of
 // those entries are set to the season's before the game sees them, and where
 // they land in memory is kept, so a season can be changed later.
+//
+// The game checks an index as it loads it: the hash of the
+// file from byte 12 (rva 1541940) against the one the file starts with and
+// the one meta/0.papgt keeps for its group. meta/0.papgt carries a signature
+// since the update, so neither is changed: the hash of an index with the
+// season's entries is the one the file has on disk (HookIndexHash).
 // ---------------------------------------------------------------------------
 
 struct Record
@@ -78,7 +89,19 @@ static volatile LONG g_season = SUMMER;
 struct Record;
 static Season For(const Record& r, Season s);
 static int g_count[SEASON_COUNT];
-static std::vector<std::pair<uint32_t, uint32_t>> g_hashes;     // index file hashes: as on disk, as read
+
+// The indexes the seasons change, as the game hashes them: what it hashes
+// (the file from byte 12: its size, and bytes of it no season changes) and
+// the hash the file has on disk.
+struct CheckedIndex
+{
+    size_t size;
+    size_t probeAt;
+    uint8_t probe[32];
+    uint32_t hash;
+};
+
+static std::vector<CheckedIndex> g_checked;
 
 static uint32_t Rol(uint32_t v, int n) { return (v << n) | (v >> (32 - n)); }
 
@@ -158,20 +181,35 @@ static bool ReadWhole(const std::wstring& path, std::vector<uint8_t>* out)
     return ok;
 }
 
-// A name out of a name block: its chain of nodes, root first.
+// A name out of a name block: its chain of pieces, root first. A piece: a
+// varint distance back to its parent piece (0: none), u8 length, characters.
 static std::string NodePath(const uint8_t* block, size_t size, uint32_t off)
 {
     std::vector<std::pair<const char*, uint8_t>> parts;
 
-    while (off != 0xFFFFFFFF && off + 5 <= size && parts.size() < 256)
+    while (off < size && parts.size() < 256)
     {
-        uint8_t n = block[off + 4];
+        uint32_t back = 0;
+        size_t p = off;
 
-        if (off + 5 + n > size)
+        for (int shift = 0; p < size && shift < 32; shift += 7)
+        {
+            uint8_t b = block[p++];
+            back |= (uint32_t)(b & 0x7F) << shift;
+
+            if (!(b & 0x80))
+                break;
+        }
+
+        if (p >= size || p + 1 + block[p] > size)
             break;
 
-        parts.emplace_back((const char*)block + off + 5, n);
-        off = U32(block + off);
+        parts.emplace_back((const char*)block + p + 1, block[p]);
+
+        if (!back || back > off)
+            break;
+
+        off -= back;
     }
 
     std::string s;
@@ -180,26 +218,6 @@ static std::string NodePath(const uint8_t* block, size_t size, uint32_t off)
         s.append(it->first, it->second);
 
     return s;
-}
-
-// The last node of a name (the end of it), cheap to look at.
-static bool LeafMentionsSeason(const uint8_t* block, size_t size, uint32_t off)
-{
-    if (off + 5 > size)
-        return false;
-
-    uint8_t n = block[off + 4];
-
-    if (off + 5 + n > size)
-        return false;
-
-    std::string leaf((const char*)block + off + 5, n);
-
-    for (int s = 0; s < SEASON_COUNT; ++s)
-        if (s != SUMMER && leaf.find(SEASON_NAMES[s]) != std::string::npos)
-            return true;
-
-    return false;
 }
 
 // ---------------------------------------------------------------------------
@@ -237,6 +255,7 @@ struct Region
 
 static std::unordered_map<std::string, std::vector<SeasonFile>> g_data;   // by group
 static std::wstring g_dataFolder;
+static std::wstring g_gameFolder;   // lower case; the DLC's groups (dlc\dlc_01\0000) are not the game's
 
 static std::vector<Region*> g_regions;
 
@@ -335,6 +354,14 @@ static void ScanPamt(const std::wstring& path, const std::string& group, const s
     uint32_t pazCount = U32(d + 4);
     size_t p = 12 + 12 * (size_t)pazCount;
     const uint8_t *dirs = NULL, *names = NULL;
+
+    // The hash the game checks (see CheckedIndex): the file's own, and room
+    // for the bytes the season's copy is known by.
+    if (p + 4 + sizeof(CheckedIndex::probe) > size || HashLittle((const char*)d + 12, size - 12, 0xC5EDE) != U32(d))
+    {
+        Log("index %S: its hash is not the file's - left as it is", path.c_str());
+        return;
+    }
     size_t dirsSize = 0, namesSize = 0;
 
     auto block = [&](const uint8_t** at, size_t* n) -> bool
@@ -362,6 +389,29 @@ static void ScanPamt(const std::wstring& path, const std::string& group, const s
 
     if (filesAt + 20 * (size_t)fileCount > size)
         return;
+
+    // The extensions, after the files: a file's last byte picks one.
+    std::vector<std::string> extensions;
+    size_t extAt = filesAt + 20 * (size_t)fileCount;
+
+    if (extAt + 4 <= size && extAt + 4 + U32(d + extAt) <= size)
+    {
+        const char* e = (const char*)d + extAt + 4;
+        const char* end = e + U32(d + extAt);
+
+        while (e < end)
+        {
+            size_t n = strnlen(e, end - e);
+            extensions.emplace_back(e, n);
+            e += n + 1;
+        }
+    }
+
+    if (extensions.size() < 2)
+    {
+        Log("index %S: no extension list (not the layout of the 2026-10-30 update)", path.c_str());
+        return;
+    }
 
     // The regions: past the end of each of the group's archives (the archive
     // table: index, checksum, size), aligned, up to 2 GB; the data file is
@@ -484,13 +534,19 @@ static void ScanPamt(const std::wstring& path, const std::string& group, const s
 
         for (uint32_t i = first; i < first + count; ++i)
         {
-            std::string full = folder + "/" + NodePath(names, namesSize, U32(d + filesAt + 20 * i));
+            uint8_t ext = d[filesAt + 20 * i + 19];
+
+            if (ext >= extensions.size())
+                continue;
+
+            std::string full = folder + "/" + NodePath(names, namesSize, U32(d + filesAt + 20 * i)) + extensions[ext];
             auto it = wanted.find(full);
 
             if (it == wanted.end())
                 continue;
 
-            // The entry, less its name: offset, stored size, size, archive, flags.
+            // The entry, less its name: offset, stored size, size, archive,
+            // flags, extension.
             uint64_t at = filesAt + 20 * (uint64_t)i + 4;
             Record* r = RecordAt(out, at, 16, d + at);
             r->climate = full == "texture/climate_texture_1.dds";
@@ -520,7 +576,7 @@ static void ScanPamt(const std::wstring& path, const std::string& group, const s
 
                 Region* region = regionOf[sf];
                 uint32_t v[4] = { (uint32_t)(region->base + (sf->offset - region->datStart)), sf->stored, sf->size,
-                                  (region->paz & 0xFFFF) | (sf->flags << 16) };
+                                  (region->paz & 0xFFFF) | ((sf->flags & 0xFF) << 16) | ((uint32_t)ext << 24) };
 
                 memcpy(r->value[sn], v, 16);
                 Pair pr = { "/" + full, (Season)sn, { sf->sizes[0], sf->sizes[1], sf->sizes[2], sf->sizes[3] } };
@@ -558,19 +614,16 @@ static void ScanPamt(const std::wstring& path, const std::string& group, const s
         return;
 
     // The file starts with hashlittle(file from byte 12, 0xC5EDE), which the
-    // game checks (and meta/0.papgt keeps a copy of): the hash of the file as
-    // the game will read it, with the start season's entries.
-    std::vector<uint8_t> patched = file;
-
-    for (const Record& r : out.records)
-        memcpy(patched.data() + r.offset, r.value[For(r, (Season)g_season)], r.size);
-
-    uint32_t before = U32(d), after = HashLittle((const char*)patched.data() + 12, patched.size() - 12, 0xC5EDE);
-    uint8_t v[4];
-    memcpy(v, &after, 4);
-    RecordAt(out, 0, 4, v);
-    g_hashes.push_back({ before, after });
-    Log("index %S: %d of %zu season paths found; hash %08X -> %08X", path.c_str(), found, wanted.size(), before, after);
+    // game checks (and meta/0.papgt keeps a copy of): the game's hash of it
+    // with the season's entries is that one (HookIndexHash). Known by its
+    // size and the start of the folder names, which no season changes.
+    CheckedIndex check = {};
+    check.size = size - 12;
+    check.probeAt = 12 * (size_t)pazCount + 4;
+    check.hash = U32(d);
+    memcpy(check.probe, d + 12 + check.probeAt, sizeof(check.probe));
+    g_checked.push_back(check);
+    Log("index %S: %d of %zu season paths found", path.c_str(), found, wanted.size());
     out.listAt = filesAt;
     out.listEnd = filesAt + 20 * (uint64_t)fileCount;
 
@@ -590,42 +643,6 @@ static void ScanPamt(const std::wstring& path, const std::string& group, const s
         }
     }
 
-    g_files.push_back(std::move(out));
-}
-
-// meta/0.papgt: u32, u32 hashlittle(file from byte 12, 0xC5EDE), u32, then the
-// groups (flags, name, the hash of their 0.pamt). The groups whose index the
-// season changes get their new hash, and the file its own.
-static void ScanPapgt(const std::wstring& path)
-{
-    std::vector<uint8_t> file;
-
-    if (g_hashes.empty() || !ReadWhole(path, &file) || file.size() < 16)
-        return;
-
-    IndexFile out;
-    out.path = Lower(path);
-    std::vector<uint8_t> patched = file;
-    int found = 0;
-
-    for (const auto& [before, after] : g_hashes)
-        for (size_t at = 12; at + 4 <= file.size(); at += 4)
-            if (U32(file.data() + at) == before)
-            {
-                uint8_t v[4];
-                memcpy(v, &after, 4);
-                RecordAt(out, at, 4, v);
-                memcpy(patched.data() + at, v, 4);
-                ++found;
-                break;
-            }
-
-    uint32_t self = HashLittle((const char*)patched.data() + 12, patched.size() - 12, 0xC5EDE);
-    uint8_t v[4];
-    memcpy(v, &self, 4);
-    RecordAt(out, 4, 4, v);
-    std::sort(out.records.begin(), out.records.end(), [](const Record& a, const Record& b) { return a.offset < b.offset; });
-    Log("group list: %d of %zu index hashes changed (own hash %08X -> %08X)", found, g_hashes.size(), U32(file.data() + 4), self);
     g_files.push_back(std::move(out));
 }
 
@@ -687,7 +704,9 @@ static void ScanPathc(const std::wstring& path, const std::vector<Pair>& pairs)
     g_files.push_back(std::move(out));
 }
 
-static void Scan()
+// indexes: the game's index check hooked (HookIndexHash) - else the season
+// data is only read (the climate), the game's indexes are left alone.
+static void Scan(bool indexes)
 {
     // The game folder: the one above bin64.
     wchar_t exe[MAX_PATH];
@@ -695,11 +714,18 @@ static void Scan()
     std::wstring root = exe;
     root = root.substr(0, root.rfind('\\'));
     root = root.substr(0, root.rfind('\\'));
+    g_gameFolder = Lower(root);
 
     // The season data: bin64\Seasons\data
     std::wstring dataFolder = std::wstring(exe).substr(0, std::wstring(exe).rfind('\\')) + L"\\Seasons\\data";
     g_dataFolder = dataFolder;
     LoadSeasonData(dataFolder);
+
+    if (!indexes)
+    {
+        Log("season textures: off (the game's index check is not the one this version knows)");
+        return;
+    }
 
     std::vector<Pair> pairs;
     WIN32_FIND_DATAW fd;
@@ -739,7 +765,6 @@ static void Scan()
         std::sort(g_files.back().records.begin(), g_files.back().records.end(),
                   [](const Record& a, const Record& b) { return a.offset < b.offset; });
 
-    ScanPapgt(root + L"\\meta\\0.papgt");
     Log("season copies: spring %d, autumn %d, winter %d", g_count[SPRING], g_count[AUTUMN], g_count[WINTER]);
 }
 
@@ -803,7 +828,21 @@ static Region* RegionOf(HANDLE h)
     return r;
 }
 
-// "...\0001\3.paz": the archive a region is past the end of.
+// A name the game opened, full and lower case: a relative one is made full
+// the way CreateFile does, from the current folder.
+static std::wstring FullName(const wchar_t* name)
+{
+    wchar_t full[MAX_PATH * 2];
+    DWORD n = GetFullPathNameW(name, MAX_PATH * 2, full, NULL);
+    std::wstring s = n > 0 && n < MAX_PATH * 2 ? full : name;
+
+    if (s.compare(0, 4, L"\\\\?\\") == 0)
+        s = s.substr(4);
+    return Lower(s);
+}
+
+// "<game>\0001\3.paz": the archive a region is past the end of. Only the
+// game folder's groups: the DLC's (dlc\dlc_01\0000) have the same names.
 static void OpenedPaz(HANDLE h, const std::wstring& n)
 {
     size_t slash = n.rfind('\\');
@@ -812,7 +851,11 @@ static void OpenedPaz(HANDLE h, const std::wstring& n)
         return;
 
     size_t before = n.rfind('\\', slash - 1);
-    std::wstring group = n.substr(before == std::wstring::npos ? 0 : before + 1, slash - (before == std::wstring::npos ? 0 : before + 1));
+
+    if (before == std::wstring::npos || n.compare(0, before, g_gameFolder) != 0 || before != g_gameFolder.size())
+        return;
+
+    std::wstring group = n.substr(before + 1, slash - before - 1);
     uint32_t paz = (uint32_t)_wtoi(n.c_str() + slash + 1);
 
     for (Region* r : g_regions)
@@ -844,7 +887,7 @@ static void Opened(HANDLE h, const wchar_t* name, const char* how)
 
     if (len > 4 && n.compare(len - 4, 4, L".paz") == 0)
     {
-        OpenedPaz(h, n);
+        OpenedPaz(h, FullName(name));
         return;
     }
     bool index = (len > 7 && n.compare(len - 7, 7, L"\\0.pamt") == 0) || (len > 8 && n.compare(len - 8, 8, L"\\0.pathc") == 0) ||
@@ -853,27 +896,14 @@ static void Opened(HANDLE h, const wchar_t* name, const char* how)
     if (!index)
         return;
 
+    // The whole path: the DLC's dlc\dlc_01\0000\0.pamt ends like the game's
+    // 0000\0.pamt, and its entries are not where the game's are.
+    n = FullName(name);
     int file = -1;
 
     for (size_t i = 0; i < g_files.size(); ++i)
-        if (n.size() >= g_files[i].path.size() && n.compare(n.size() - g_files[i].path.size(), g_files[i].path.size(), g_files[i].path) == 0)
+        if (n == g_files[i].path)
             file = (int)i;
-
-    // Relative paths and the like: match the group folder and file name.
-    if (file < 0)
-    {
-        size_t last = n.rfind('\\');
-        size_t cut = last != std::wstring::npos && last > 0 ? n.rfind('\\', last - 1) : std::wstring::npos;
-        std::wstring tail = cut != std::wstring::npos ? n.substr(cut) : n;
-
-        for (size_t i = 0; i < g_files.size(); ++i)
-        {
-            const std::wstring& p = g_files[i].path;
-
-            if (p.size() >= tail.size() && p.compare(p.size() - tail.size(), tail.size(), tail) == 0)
-                file = (int)i;
-        }
-    }
 
     if (file < 0)
         return;
@@ -1320,16 +1350,56 @@ static HANDLE WINAPI HookCreateFileMappingW(HANDLE file, LPSECURITY_ATTRIBUTES s
     return g_createFileMappingW(file, sa, protect, hi, lo, name);
 }
 
+// The game's hashlittle(data, size, 0xC5EDE) (rva 1541940), which its index
+// check uses (the file from byte 12): for an index the seasons
+// change, the hash the file has on disk.
+static const uintptr_t INDEX_HASH = 0x1541940;
+static const unsigned char INDEX_HASH_START[] = { 0x48, 0x89, 0x5C, 0x24, 0x08, 0x48, 0x89, 0x74, 0x24, 0x10, 0x48, 0x89,
+                                                  0x7C, 0x24, 0x18, 0x8D, 0x9A, 0xCD, 0x1D, 0xBA, 0xDE };
+
+typedef uint32_t (*IndexHashFn)(const uint8_t*, size_t);
+static IndexHashFn g_indexHash = NULL;
+
+static uint32_t HookIndexHash(const uint8_t* data, size_t size)
+{
+    for (const CheckedIndex& c : g_checked)
+        if (size == c.size && memcmp(data + c.probeAt, c.probe, sizeof(c.probe)) == 0)
+            return c.hash;
+
+    return g_indexHash(data, size);
+}
+
+static bool HookIndexCheck()
+{
+    uint8_t* at = (uint8_t*)GetModuleHandleW(NULL) + INDEX_HASH;
+
+    __try
+    {
+        if (memcmp(at, INDEX_HASH_START, sizeof(INDEX_HASH_START)) != 0)
+        {
+            Log("index check: not at rva %llX (another game version)", (unsigned long long)INDEX_HASH);
+            return false;
+        }
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        return false;
+    }
+
+    return MH_CreateHook(at, (LPVOID)HookIndexHash, (LPVOID*)&g_indexHash) == MH_OK;
+}
+
 bool ArchiveInit(Season start)
 {
     g_season = start;
-    Scan();
 
     if (MH_Initialize() != MH_OK)
     {
         Log("hooks: MinHook failed");
         return false;
     }
+
+    Scan(HookIndexCheck());
 
     bool ok =
         MH_CreateHookApi(L"kernelbase", "CreateFileW", (LPVOID)HookCreateFileW, (LPVOID*)&g_createFileW) == MH_OK &&
