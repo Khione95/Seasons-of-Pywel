@@ -1,0 +1,3 @@
+1.0.6
+- Updated for the game's second patch of 30 October 2026 (the one that came in the evening). On it, 1.0.5 turned off its season textures, the seasonal climate and deep snow, and the season's weather (no crash), and the menu read the day from the wrong place. All of it works again.
+- If a future game update moves things again, the F5 menu shows "Day not known yet" instead of a wrong day, and the season won't change by itself until the mod is updated (you can still pick one in the menu).

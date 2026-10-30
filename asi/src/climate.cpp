@@ -35,12 +35,12 @@
 // (COLDER_AT_FULL_DEPTH), and the line goes down as much.
 // ---------------------------------------------------------------------------
 
-// The game build these are for (the 2026-10-30 update's patch of 11:19): the snow settings
+// The game build these are for (the 2026-10-30 update's second patch, 20:07; the patch of 11:19 was 6AE387F2): the snow settings
 // and the climate maps are written, so another build is left alone.
-static const DWORD KNOWN_TIMESTAMP = 0x6AE387F2, KNOWN_IMAGE_SIZE = 0x145B9000;
-static const uintptr_t CLIMATE_VTABLE = 0x5E8B7C0;
+static const DWORD KNOWN_TIMESTAMP = 0x6AE46DD0, KNOWN_IMAGE_SIZE = 0x14268000;
+static const uintptr_t CLIMATE_VTABLE = 0x5E8D890;
 static const uint32_t MAP_SIZE = 512;
-static const uintptr_t SNOW_START = 0x71A8D48, SNOW_FULL = 0x71A8D98, DEEP_SNOW = 0x71A8DE8, DEEP_SNOW_FULL = 0x71A8E38;
+static const uintptr_t SNOW_START = 0x71ABD38, SNOW_FULL = 0x71ABD88, DEEP_SNOW = 0x71ABDD8, DEEP_SNOW_FULL = 0x71ABE28;
 static const float DEEP_SNOW_NONE = -45.0f;     // below winter's climate texture (-40): no deep snow
 
 // Each season's days and nights against the game's own (summer is hot).
@@ -89,7 +89,7 @@ static float* Global(uintptr_t rva) { return (float*)((uintptr_t)GetModuleHandle
 // The climate manager ([1471AEA58] +0x50 -> +0xF70) and the
 // camera it keeps (+0x1001F8: x, y, z). Before the 2026-10-30 update:
 // [146D69198] +0x40 -> +0xF68, the camera at +0x4001C8.
-static const uintptr_t CLIMATE_ROOT = 0x71AEA58;
+static const uintptr_t CLIMATE_ROOT = 0x71B1A48;
 
 static bool Camera(float* x, float* z)
 {
@@ -113,6 +113,13 @@ static bool Camera(float* x, float* z)
 }
 
 static float Top(uint32_t texel);
+
+bool ClimateKnownBuild()
+{
+    const uint8_t* base = (const uint8_t*)GetModuleHandleW(NULL);
+    const IMAGE_NT_HEADERS* nt = (const IMAGE_NT_HEADERS*)(base + ((const IMAGE_DOS_HEADER*)base)->e_lfanew);
+    return nt->FileHeader.TimeDateStamp == KNOWN_TIMESTAMP && nt->OptionalHeader.SizeOfImage == KNOWN_IMAGE_SIZE;
+}
 
 bool ClimateInDesert()
 {

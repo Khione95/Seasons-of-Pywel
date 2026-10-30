@@ -44,7 +44,7 @@ const char* const SEASON_NAMES[SEASON_COUNT] = { "spring", "summer", "autumn", "
 // they land in memory is kept, so a season can be changed later.
 //
 // The game checks an index as it loads it: the hash of the
-// file from byte 12 (rva 1541940) against the one the file starts with and
+// file from byte 12 (rva 1542450; 1541940 on the patch of 11:19) against the one the file starts with and
 // the one meta/0.papgt keeps for its group. meta/0.papgt carries a signature
 // since the update, so neither is changed: the hash of an index with the
 // season's entries is the one the file has on disk (HookIndexHash).
@@ -1350,10 +1350,10 @@ static HANDLE WINAPI HookCreateFileMappingW(HANDLE file, LPSECURITY_ATTRIBUTES s
     return g_createFileMappingW(file, sa, protect, hi, lo, name);
 }
 
-// The game's hashlittle(data, size, 0xC5EDE) (rva 1541940), which its index
+// The game's hashlittle(data, size, 0xC5EDE) (rva 1542450; 1541940 on the patch of 11:19), which its index
 // check uses (the file from byte 12): for an index the seasons
 // change, the hash the file has on disk.
-static const uintptr_t INDEX_HASH = 0x1541940;
+static const uintptr_t INDEX_HASH = 0x1542450;
 static const unsigned char INDEX_HASH_START[] = { 0x48, 0x89, 0x5C, 0x24, 0x08, 0x48, 0x89, 0x74, 0x24, 0x10, 0x48, 0x89,
                                                   0x7C, 0x24, 0x18, 0x8D, 0x9A, 0xCD, 0x1D, 0xBA, 0xDE };
 

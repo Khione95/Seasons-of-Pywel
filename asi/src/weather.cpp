@@ -16,15 +16,15 @@
 #include "MinHook.h"
 
 // ---------------------------------------------------------------------------
-// The HUD's weather (the icon next to the clock) comes from rva 1932A10
+// The HUD's weather (the icon next to the clock) comes from rva 1934840
 // (actor, u32* flags, bool*): a bit per weather - 0 rainy, 1 snowy, 2 windy,
 // 3 fog, 4 cloudy, 5 sunny, 6 storm (new in the 2026-10-30 update; the names
 // at rva 5CB8F18); the HUD shows the lowest bit set. The hook keeps the flags
 // of every call.
 //
 // The weather itself: each tick the climate manager composes its weather
-// layers (the weather sequences) into one WeatherConstant (rva 40B1480, from
-// its update rva 40B71E0, into [[manager+0x60]+0x20]): +0x12C precipitation, +0x130 cloudiness,
+// layers (the weather sequences) into one WeatherConstant (rva 40B2D80, from
+// its update rva 40B8AE0, into [[manager+0x60]+0x20]): +0x12C precipitation, +0x130 cloudiness,
 // +0x134 humidity, +0x16C snow, +0x170 rain (the fields' setters name them:
 // _snow and _rain moved 4 bytes in the update, _oceanWindDegree came before
 // them). The rain and snow effects and the HUD read it. After the game
@@ -36,15 +36,15 @@
 const wchar_t* const WEATHER_NAMES[WEATHER_UNKNOWN + 1] = { L"Rainy", L"Snowy", L"Windy", L"Fog", L"Cloudy", L"Sunny", L"Stormy",
                                                             L"Not known yet" };
 
-static const uintptr_t WEATHER_QUERY = 0x1933C70;
+static const uintptr_t WEATHER_QUERY = 0x1934840;
 static const unsigned char QUERY_START[] = { 0x48, 0x89, 0x5C, 0x24, 0x10, 0x48, 0x89, 0x6C, 0x24, 0x18, 0x48, 0x89, 0x74, 0x24, 0x20, 0x57,
                                              0x48, 0x83, 0xEC, 0x60 };
 
 // The compose was hooked through the climate manager's update that calls it
 // (its start was a VEX instruction the hook library cannot move): rva
-// 40B71E0, compose, then the effects' bookkeeping; the season's weather goes
+// 40B8AE0, compose, then the effects' bookkeeping; the season's weather goes
 // in after.
-static const uintptr_t WEATHER_UPDATE = 0x40B71E0;
+static const uintptr_t WEATHER_UPDATE = 0x40B8AE0;
 static const unsigned char UPDATE_START[] = { 0x48, 0x8B, 0xC4, 0x53, 0x55, 0x56, 0x57, 0x41, 0x54, 0x41, 0x56, 0x41, 0x57, 0x48, 0x81, 0xEC,
                                               0x90, 0x00, 0x00, 0x00 };
 

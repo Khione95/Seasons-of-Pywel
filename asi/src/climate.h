@@ -9,6 +9,9 @@
 void ClimateStart(Season start, const char* ini);
 void ClimateSeasonChanged(Season season);
 
+// The game build is the one the addresses are for (KNOWN_TIMESTAMP).
+bool ClimateKnownBuild();
+
 // The camera is in the desert (where the winter climate map keeps summer's):
 // the season's temperatures and weather leave it as the game has it.
 bool ClimateInDesert();
