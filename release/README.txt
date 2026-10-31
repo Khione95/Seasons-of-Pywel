@@ -1,4 +1,4 @@
-Seasons of Pywel 1.0.6 for Crimson Desert
+Seasons of Pywel 1.0.7 for Crimson Desert
 by Khione
 
 Four seasons that follow the in-game day, changing live while you play.

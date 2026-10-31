@@ -1,0 +1,2 @@
+1.0.7
+- Updated for the game update of 31 October 2026: on it, 1.0.6 turned off its season textures, temperatures, deep snow and the day in the F5 menu.

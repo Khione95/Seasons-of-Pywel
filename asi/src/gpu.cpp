@@ -1,4 +1,5 @@
 #include "gpu.h"
+#include "climate.h"
 #include "log.h"
 
 #include <windows.h>
@@ -600,6 +601,14 @@ void GpuInit(ID3D12CommandQueue* queue)
 {
     if (g_queue || !queue)
         return;
+
+    // On another game build the climate side is off, which keeps winter's cold
+    // map from showing deep snow everywhere: this side stays out as well.
+    if (!ClimateKnownBuild())
+    {
+        Log("gpu: another game build - the season's textures stay as the game has them");
+        return;
+    }
 
     g_queue = Unwrapped(queue);
 

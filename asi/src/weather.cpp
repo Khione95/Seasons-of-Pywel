@@ -36,7 +36,7 @@
 const wchar_t* const WEATHER_NAMES[WEATHER_UNKNOWN + 1] = { L"Rainy", L"Snowy", L"Windy", L"Fog", L"Cloudy", L"Sunny", L"Stormy",
                                                             L"Not known yet" };
 
-static const uintptr_t WEATHER_QUERY = 0x1934840;
+static const uintptr_t WEATHER_QUERY = 0x1937A00;
 static const unsigned char QUERY_START[] = { 0x48, 0x89, 0x5C, 0x24, 0x10, 0x48, 0x89, 0x6C, 0x24, 0x18, 0x48, 0x89, 0x74, 0x24, 0x20, 0x57,
                                              0x48, 0x83, 0xEC, 0x60 };
 
@@ -44,7 +44,7 @@ static const unsigned char QUERY_START[] = { 0x48, 0x89, 0x5C, 0x24, 0x10, 0x48,
 // (its start was a VEX instruction the hook library cannot move): rva
 // 40B8AE0, compose, then the effects' bookkeeping; the season's weather goes
 // in after.
-static const uintptr_t WEATHER_UPDATE = 0x40B8AE0;
+static const uintptr_t WEATHER_UPDATE = 0x40BC610;
 static const unsigned char UPDATE_START[] = { 0x48, 0x8B, 0xC4, 0x53, 0x55, 0x56, 0x57, 0x41, 0x54, 0x41, 0x56, 0x41, 0x57, 0x48, 0x81, 0xEC,
                                               0x90, 0x00, 0x00, 0x00 };
 
